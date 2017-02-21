@@ -1,0 +1,75 @@
+{
+  "defaults": {
+    "color": "#ffffff"
+  },
+  "blocks": [{
+    "module": "ExternalCmd",
+    "label":"",
+    "config": {
+      "command": "apt-get --just-print upgrade |grep  Inst | wc -l"
+    },
+    "interval": 60,
+    "info": {
+      "border_bottom": 2,
+      "border": "#ff00ff"
+    }
+  },{
+    "module": "VolumeInfo",
+    "label":"V:",
+    "interval": 1,
+    "info": {
+      "border_bottom": 2,
+      "border": "#ff00ff"
+    }
+  },{
+    "module": "CpuInfo",
+    "label": "",
+    "interval": 2,
+    "info": {
+      "border_bottom": 2,
+      "border": "#ffffff"
+    }
+  },{
+    "module": "MemInfo",
+    "label": "",
+    "interval": 5,
+    "info": {
+      "border_bottom": 2,
+      "border": "#00ff00"
+    }
+  },{
+    "module": "DiskUsage",
+    "label": "",
+    "interval": 10,
+    "info": {
+      "border_bottom": 2,
+      "border": "#ffff00"
+    }
+  },{
+    "module": "ExternalCmd",
+    "label":"",
+    "config": {
+      "command": "uptime |sed 's/,//g' |awk '{ print $3 }'"
+    },
+    "interval": 60,
+    "info": {
+      "border_bottom": 2,
+      "border": "#909090"
+    }
+  },{
+    "module": "DateTime",
+    "label": "",
+    "interval": 5,
+    "info": {
+      "border_bottom": 2,
+      "border": "#ffffff"
+    }
+  },{
+    "module": "ExternalCmd",
+    "label": "",
+    "config": {
+      "on_click": "shutdown -h -t now"
+    },
+    "interval": 0
+  }]
+}

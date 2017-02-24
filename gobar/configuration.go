@@ -26,7 +26,7 @@ func (config *Configuration) CreateBar(logger *log.Logger) *Bar {
 		}
 	}
 	return &Bar{
-		modules:       config.Blocks,
+		blocks:       config.Blocks,
 		logger:        logger,
 		updateChannel: updateChannel,
 	}

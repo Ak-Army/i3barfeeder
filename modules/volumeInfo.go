@@ -56,10 +56,12 @@ func (module VolumeInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	if err == nil {
 		volumes := module.regex.FindStringSubmatch(string(out))
 		if len(volumes) == 0 || volumes[3] == "off" {
+			info.ShortText = fmt.Sprintf("%d%s", 0, "%")
 			info.FullText = makeBar(float64(0), module.barConfig)
 		} else {
 			currentVolume, err := strconv.ParseFloat(module.regex.FindStringSubmatch(string(out))[2], 64)
 			if err == nil {
+				info.ShortText = fmt.Sprintf("%d%s", int(currentVolume), "%")
 				info.FullText = makeBar(float64(currentVolume), module.barConfig)
 			}
 		}
@@ -72,6 +74,8 @@ func (module VolumeInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 
 	return info
 }
+
+//{"name":"VolumeInfo","instance":"id_1","button":5,"x":2991,"y":12}
 func (module VolumeInfo) HandleClick(cm gobar.ClickMessage) error {
 	var cmd string
 	switch cm.Button {

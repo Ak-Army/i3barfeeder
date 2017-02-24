@@ -62,7 +62,6 @@ func main() {
 	config, err := loadConfig(configPath)
 	checkErr(err, "Config file not opened")
 	logger.Printf("bar items: %+v", config.Blocks)
-	fmt.Printf("%+v", config.Defaults)
 
 	bar := config.CreateBar(logger)
 	bar.Start()
@@ -78,7 +77,7 @@ func main() {
 
 func sigHandler(bar *gobar.Bar, logger *log.Logger) {
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs)
+	signal.Notify(sigs, syscall.SIGINT)
 	for {
 		sig := <-sigs
 		logger.Printf("Received signal: %q", sig)

@@ -19,7 +19,7 @@ type Header struct {
 }
 
 type Bar struct {
-	modules       []Block
+	blocks        []Block
 	logger        *log.Logger
 	updateChannel chan UpdateChannelMsg
 	stop          chan bool
@@ -64,6 +64,28 @@ func (bar *Bar) Stop() {
 	bar.stop <- true
 }
 
+
+func (bar *Bar) Print() (minInterval int64) {
+	var infoArray []string
+	for _, item := range bar.blocks {
+		item.Info.FullText = item.Label + " " + item.Info.FullText
+		item.Info.ShortText = item.Label + " " + item.Info.ShortText
+
+		info, err := json.Marshal(item.Info)
+		if err != nil {
+			bar.logger.Printf("ERROR: %q", err)
+		} else {
+			infoArray = append(infoArray, string(info))
+		}
+		if minInterval == 0 || (item.Interval > 0 && item.Interval < minInterval) {
+			minInterval = item.Interval
+		}
+	}
+	fmt.Println(",[", strings.Join(infoArray, ",\n"), "]")
+
+	return minInterval
+}
+
 func (bar *Bar) update() {
 	for {
 		select {
@@ -71,7 +93,7 @@ func (bar *Bar) update() {
 			bar.logger.Println("update")
 			return
 		case m := <-bar.updateChannel:
-			bar.modules[m.ID].Info = m.Info
+			bar.blocks[m.ID].Info = m.Info
 		}
 	}
 }
@@ -101,12 +123,15 @@ func (bar *Bar) handleClick() {
 			err = json.Unmarshal(line, &clickMessage)
 			if err == nil {
 				bar.logger.Printf("Click: line: %s, cm:%+v", string(line), clickMessage)
-				for _, module := range bar.modules {
-					if clickMessage.isMatch(module) {
+				for i, block := range bar.blocks {
+					if clickMessage.isMatch(block) {
 						bar.logger.Println("Click: handled")
-						err := module.HandleClick(clickMessage)
+						err := block.HandleClick(clickMessage)
 						if err != nil {
 							bar.logger.Println("Click handle error: %s", err.Error())
+						} else {
+							bar.blocks[i].Info = block.module.UpdateInfo(block.Info)
+							bar.Print()
 						}
 					}
 				}
@@ -123,23 +148,7 @@ func (bar *Bar) printItems() {
 			bar.logger.Println("printItems")
 			return
 		default:
-			var infoArray []string
-			var minInterval int64
-			for _, item := range bar.modules {
-				item.Info.FullText = item.Label + " " + item.Info.FullText
-				item.Info.ShortText = item.Label + " " + item.Info.ShortText
-
-				info, err := json.Marshal(item.Info)
-				if err != nil {
-					bar.logger.Printf("ERROR: %q", err)
-				} else {
-					infoArray = append(infoArray, string(info))
-				}
-				if minInterval == 0 || (item.Interval > 0 && item.Interval < minInterval) {
-					minInterval = item.Interval
-				}
-			}
-			fmt.Println(",[", strings.Join(infoArray, ",\n"), "]")
+			minInterval := bar.Print()
 			if minInterval == 0 {
 				break;
 			}

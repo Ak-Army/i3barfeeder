@@ -3,7 +3,6 @@ package modules
 import (
 	"fmt"
 	"reflect"
-	"strings"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -54,17 +53,9 @@ func (module *VolumeInfo) InitModule(config gobar.Config) error {
 func (module VolumeInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	out, err := exec.Command("sh", "-c", "amixer -D "+module.mixer+" get "+module.sControl).Output()
 	if err == nil {
-		volumes := module.regex.FindStringSubmatch(string(out))
-		if len(volumes) == 0 || volumes[3] == "off" {
-			info.ShortText = fmt.Sprintf("%d%s", 0, "%")
-			info.FullText = makeBar(float64(0), module.barConfig)
-		} else {
-			currentVolume, err := strconv.ParseFloat(module.regex.FindStringSubmatch(string(out))[2], 64)
-			if err == nil {
-				info.ShortText = fmt.Sprintf("%d%s", int(currentVolume), "%")
-				info.FullText = makeBar(float64(currentVolume), module.barConfig)
-			}
-		}
+		currentVolume := module.volumeInfo(string(out))
+		info.ShortText = fmt.Sprintf("%d%s", int(currentVolume), "%")
+		info.FullText = makeBar(float64(currentVolume), module.barConfig)
 	}
 
 	if err != nil {
@@ -76,7 +67,7 @@ func (module VolumeInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 }
 
 //{"name":"VolumeInfo","instance":"id_1","button":5,"x":2991,"y":12}
-func (module VolumeInfo) HandleClick(cm gobar.ClickMessage) error {
+func (module VolumeInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	var cmd string
 	switch cm.Button {
 	case 3: //right click, mute/unmute
@@ -87,28 +78,26 @@ func (module VolumeInfo) HandleClick(cm gobar.ClickMessage) error {
 		cmd = fmt.Sprintf("amixer -D %s sset %s %d%%- unmute", module.mixer, module.sControl, module.step)
 	}
 	if cmd != "" {
-		return exec.Command("sh", "-c", cmd).Start()
+		out, err := exec.Command("sh", "-c", cmd).Output()
+		if err == nil {
+			currentVolume := module.volumeInfo(string(out))
+			info.ShortText = fmt.Sprintf("%d%s", int(currentVolume), "%")
+			info.FullText = makeBar(float64(currentVolume), module.barConfig)
+		}
 	}
-	return nil
+	return &info, nil
 }
 
-func (module VolumeInfo) VolumeInfo() (float64, float64) {
-	mem := map[string]float64{
-		"MemTotal": 0,
-		"MemFree":  0,
-		"Buffers":  0,
-		"Cached":   0,
-	}
-	callback := func(line string) bool {
-		fields := strings.Split(line, ":")
-		if _, ok := mem[fields[0]]; ok {
-			var val float64
-			fmt.Sscanf(fields[1], "%f", &val)
-			mem[fields[0]] = val * 1024
+func (module VolumeInfo) volumeInfo(out string) float64 {
+	volumes := module.regex.FindStringSubmatch(out)
+	if len(volumes) == 0 || volumes[3] == "off" {
+		return float64(0)
+	} else {
+		currentVolume, err := strconv.ParseFloat(module.regex.FindStringSubmatch(string(out))[2], 64)
+		if err == nil {
+			return float64(currentVolume)
 		}
-		return true
 	}
-	readLines("/proc/VolumeInfo", callback)
-	return mem["MemFree"] + mem["Buffers"] + mem["Cached"], mem["MemTotal"]
+	return float64(0)
 }
 

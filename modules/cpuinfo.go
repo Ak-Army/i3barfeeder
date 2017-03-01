@@ -33,9 +33,9 @@ func (module CpuInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	info.FullText = makeBar(cpuUsage, module.barConfig)
 	return info
 }
-func (module CpuInfo) HandleClick(cm gobar.ClickMessage) error {
+func (module CpuInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	split := strings.Split("gnome-system-monitor -p", " ")
-	return exec.Command(split[0], split[1:]...).Start()
+	return nil, exec.Command(split[0], split[1:]...).Start()
 }
 
 func (module CpuInfo) CpuInfo() (cpuUsage float64) {

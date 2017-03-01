@@ -31,9 +31,9 @@ func (module MemInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	info.FullText = makeBar(freePercent, module.barConfig)
 	return info
 }
-func (module MemInfo) HandleClick(cm gobar.ClickMessage) error {
+func (module MemInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	split := strings.Split("gnome-system-monitor -r", " ")
-	return exec.Command(split[0], split[1:]...).Start()
+	return nil, exec.Command(split[0], split[1:]...).Start()
 }
 
 func (module MemInfo) memInfo() (float64, float64) {

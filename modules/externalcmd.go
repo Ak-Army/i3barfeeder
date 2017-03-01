@@ -38,10 +38,10 @@ func (module ExternalCmd) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	return info
 }
 
-func (module ExternalCmd) HandleClick(cm gobar.ClickMessage) error {
+func (module ExternalCmd) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	if module.onClick != nil {
-		return module.onClick.Start()
+		return nil, module.onClick.Start()
 	}
-	return nil
+	return nil, nil
 }
 

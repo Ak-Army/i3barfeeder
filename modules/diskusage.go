@@ -32,9 +32,9 @@ func (module DiskUsage) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	info.FullText = makeBar(freePercent, module.barConfig)
 	return info
 }
-func (module DiskUsage) HandleClick(cm gobar.ClickMessage) error {
+func (module DiskUsage) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	split := strings.Split("gnome-system-monitor -f", " ")
-	return exec.Command(split[0], split[1:]...).Start()
+	return nil, exec.Command(split[0], split[1:]...).Start()
 }
 
 func (module DiskUsage) diskUsage() (free float64, total float64) {

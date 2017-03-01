@@ -97,7 +97,7 @@ type Config map[string]interface{}
 type ModuleInterface interface {
 	InitModule(config Config) error
 	UpdateInfo(info BlockInfo) BlockInfo
-	HandleClick(cm ClickMessage) error
+	HandleClick(cm ClickMessage, info BlockInfo) (*BlockInfo, error)
 }
 
 // Block i3  item
@@ -165,8 +165,8 @@ func (block Block) Start(ID int, updateChannel chan<- UpdateChannelMsg) {
 	}
 }
 
-func (block Block) HandleClick(cm ClickMessage) error {
-	return block.module.HandleClick(cm)
+func (block Block) HandleClick(cm ClickMessage) (*BlockInfo, error) {
+	return block.module.HandleClick(cm, block.Info)
 }
 
 var typeRegistry = make(map[string]reflect.Type)

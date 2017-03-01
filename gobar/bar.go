@@ -126,11 +126,12 @@ func (bar *Bar) handleClick() {
 				for i, block := range bar.blocks {
 					if clickMessage.isMatch(block) {
 						bar.logger.Println("Click: handled")
-						err := block.HandleClick(clickMessage)
+						info, err := block.HandleClick(clickMessage)
 						if err != nil {
 							bar.logger.Println("Click handle error: %s", err.Error())
-						} else {
-							bar.blocks[i].Info = block.module.UpdateInfo(block.Info)
+						}
+						if info != nil {
+							bar.blocks[i].Info = *info
 							bar.Print()
 						}
 					}

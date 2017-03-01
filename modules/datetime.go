@@ -40,6 +40,6 @@ func (module DateTime) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	info.FullText = now.Format(module.format)
 	return info
 }
-func (slot DateTime) HandleClick(cm gobar.ClickMessage) error {
-	return nil
+func (slot DateTime) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
+	return nil, nil
 }

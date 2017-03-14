@@ -9,8 +9,9 @@ import (
 
 type DateTime struct {
 	gobar.ModuleInterface
-	format   string
-	location *time.Location
+	format      string
+	shortFormat string
+	location    *time.Location
 }
 
 func (module *DateTime) InitModule(config gobar.Config) error {
@@ -18,6 +19,11 @@ func (module *DateTime) InitModule(config gobar.Config) error {
 		module.format = format
 	} else {
 		module.format = "2006-01-02 15:04:05"
+	}
+	if shortFormat, ok := config["shortFormat"].(string); ok {
+		module.shortFormat = shortFormat
+	} else {
+		module.shortFormat = "02 15:04:05"
 	}
 	if location, ok := config["location"].(string); ok {
 		zone, err := time.LoadLocation(location)
@@ -38,6 +44,7 @@ func (module DateTime) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	}
 
 	info.FullText = now.Format(module.format)
+	info.ShortText = now.Format(module.shortFormat)
 	return info
 }
 func (slot DateTime) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {

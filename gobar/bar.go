@@ -11,7 +11,7 @@ import (
 )
 
 // Header i3  header
-type Header struct {
+type header struct {
 	Version     int  `json:"version"`
 	ClickEvents bool `json:"click_events"`
 	// StopSignal     int  `json:"stop_signal"`
@@ -38,7 +38,7 @@ func (cm *ClickMessage) isMatch(block Block) bool {
 }
 
 func (bar *Bar) Start() {
-	header := Header{
+	header := header{
 		Version:     1,
 		ClickEvents: true,
 		// StopSignal:     20, // SIGHUP

@@ -40,6 +40,7 @@ func initModules() {
 	gobar.AddModule("MemInfo", reflect.TypeOf(modules.MemInfo{}))
 	gobar.AddModule("CpuInfo", reflect.TypeOf(modules.CpuInfo{}))
 	gobar.AddModule("VolumeInfo", reflect.TypeOf(modules.VolumeInfo{}))
+	gobar.AddModule("Toggl", reflect.TypeOf(modules.Toggl{}))
 }
 
 func main() {

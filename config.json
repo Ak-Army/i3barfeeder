@@ -3,6 +3,18 @@
     "color": "#ffffff"
   },
   "blocks": [{
+    "module": "Toggl",
+    "label":"",
+    "config": {
+      "apiToken": "3a88be1084c6cd974c9f36c7f94b61b8",
+      "defaultWID": 336995
+    },
+    "interval": 1,
+    "info": {
+      "border_bottom": 2,
+      "border": "#909090"
+    }
+  },{
     "module": "ExternalCmd",
     "label":"",
     "config": {
@@ -44,17 +56,6 @@
     "info": {
       "border_bottom": 2,
       "border": "#ffff00"
-    }
-  },{
-    "module": "ExternalCmd",
-    "label":"",
-    "config": {
-      "command": "uptime |sed 's/,//g' |awk '{ print $3 }'"
-    },
-    "interval": 60,
-    "info": {
-      "border_bottom": 2,
-      "border": "#909090"
     }
   },{
     "module": "DateTime",

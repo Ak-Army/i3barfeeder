@@ -23,10 +23,14 @@ type Toggl struct {
 	gobar.ModuleInterface
 	toggl      toggl
 	defaultWID int64
+	ticketNames []string
 }
 
 var currentTimeEntry TimeEntry
+var updateTimeEntry TimeEntry
 var todayDuration string
+var currentName int = 0
+var updateTimer *time.Timer
 
 func (module *Toggl) InitModule(config gobar.Config) error {
 	if apiToken, ok := config["apiToken"].(string); ok {
@@ -37,6 +41,14 @@ func (module *Toggl) InitModule(config gobar.Config) error {
 	if defaultWID, ok := config["defaultWID"].(float64); ok {
 		module.defaultWID = int64(defaultWID)
 	}
+
+	if ticketNames, ok := config["ticketNames"].([]interface{}); ok {
+		for _, item := range ticketNames {
+			if itemString, ok := item.(string); ok {
+				module.ticketNames = append(module.ticketNames, itemString);
+			}
+		}
+	}
 	module.calcRemainingTime()
 
 	ticker := time.NewTicker(time.Second)
@@ -44,12 +56,20 @@ func (module *Toggl) InitModule(config gobar.Config) error {
 		for t := range ticker.C {
 			switch {
 			case t.Second()%10 == 0:
-				module.getCurrentTimeEntry()
+				if updateTimeEntry.ID == 0 {
+					module.getCurrentTimeEntry()
+				}
 			case t.Minute() > 0 && t.Minute()%5 == 0:
 				module.calcRemainingTime()
 			}
 		}
 	}()
+	updateTimer = time.NewTimer(time.Second*3)
+	updateTimer = time.AfterFunc(time.Second*3, func() {
+		module.updateCurrentTimeEntry()
+	})
+	updateTimer.Stop()
+
 	return nil
 }
 
@@ -67,18 +87,39 @@ func (module Toggl) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 //{"name":"Toggl","instance":"id_0","button":5,"x":2991,"y":12}
 func (module Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	currentTimeEntry, _ = module.toggl.GetCurrentTimeEntry()
-	if currentTimeEntry.ID != 0 {
-		module.toggl.StopTimeEntry(currentTimeEntry)
-		currentTimeEntry = TimeEntry{}
-	} else {
-		if module.defaultWID != 0 {
-			var newTimeEntry = TimeEntry{
-				Description: "DOTO-2 Általános adminisztrálás",
-				WID: module.defaultWID,
-				CreatedWith: "hunyi",
+	updateTimer.Stop()
+	updateTimeEntry = TimeEntry{}
+	switch cm.Button {
+	case 3: //right click, start/stop
+		if currentTimeEntry.ID != 0 {
+			module.toggl.StopTimeEntry(currentTimeEntry)
+			currentTimeEntry = TimeEntry{}
+		} else {
+			if module.defaultWID != 0 {
+				var newTimeEntry = TimeEntry{
+					Description: "DOTO-2 Általános adminisztrálás",
+					WID: module.defaultWID,
+					CreatedWith: "hunyi",
+				}
+				currentTimeEntry, _ = module.toggl.StartTimeEntry(newTimeEntry)
 			}
-			currentTimeEntry, _ = module.toggl.StartTimeEntry(newTimeEntry)
 		}
+	case 4: //scroll up, increase
+		currentName = currentName+1
+		if currentName >= len(module.ticketNames) {
+			currentName = 0;
+		}
+		currentTimeEntry.Description = module.ticketNames[currentName]
+		updateTimeEntry = currentTimeEntry
+		updateTimer.Reset(time.Second*3)
+	case 5: //scroll down, decrease
+		currentName = currentName-1
+		if currentName < 0 {
+			currentName = len(module.ticketNames)-1;
+		}
+		currentTimeEntry.Description = module.ticketNames[currentName]
+		updateTimeEntry = currentTimeEntry
+		updateTimer.Reset(time.Second*3)
 	}
 	return nil, nil
 }
@@ -99,6 +140,10 @@ func (module Toggl) calcRemainingTime() {
 
 func (module Toggl) getCurrentTimeEntry() {
 	currentTimeEntry, _ = module.toggl.GetCurrentTimeEntry()
+}
+
+func (module Toggl) updateCurrentTimeEntry() {
+	module.toggl.UpdateTimeEntry(updateTimeEntry)
 }
 
 func prettyPrintDuration(sec int, withSec bool) string {
@@ -278,6 +323,23 @@ func (toggle toggl) GetTimeEntries(fromDate time.Time, toDate time.Time) ([]Time
 		return response, err
 	}
 	return response, nil
+}
+
+func (toggle toggl) UpdateTimeEntry(timeEntry TimeEntry) (TimeEntry, error)  {
+	idString := strconv.FormatInt(timeEntry.ID, 10)
+	createTimeEntry := createTimeEntry{TimeEntry:timeEntry}
+	res, err := toggle.request("PUT", "/time_entries/"+idString, createTimeEntry)
+
+	if err != nil {
+		return TimeEntry{}, err
+	}
+	var response = &currentResponse{}
+	err = json.Unmarshal(res, response);
+	if err != nil {
+		return TimeEntry{}, err
+	}
+	updateTimeEntry = TimeEntry{}
+	return response.Data, nil
 }
 
 func (timeEntry TimeEntry) GetDuration() float64 {

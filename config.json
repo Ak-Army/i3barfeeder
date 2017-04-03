@@ -7,7 +7,14 @@
     "label":"",
     "config": {
       "apiToken": "3a88be1084c6cd974c9f36c7f94b61b8",
-      "defaultWID": 336995
+      "defaultWID": 336995,
+      "ticketNames": [
+        "DOTO-1 TV javítás",
+        "DOTO-2 Általános adminisztrálás",
+        "DOTO-3 HR issues",
+        "DOTO-7 Planning, afterplanning, PRM"
+
+      ]
     },
     "interval": 1,
     "info": {
@@ -60,7 +67,7 @@
   },{
     "module": "DateTime",
     "label": "",
-    "interval": 5,
+    "interval": 1,
     "info": {
       "border_bottom": 2,
       "border": "#ffffff"

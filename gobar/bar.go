@@ -8,14 +8,16 @@ import (
 	"time"
 	"bufio"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 // Header i3  header
 type header struct {
 	Version     int  `json:"version"`
 	ClickEvents bool `json:"click_events"`
-	// StopSignal     int  `json:"stop_signal"`
-	// ContinueSignal int  `json:"cont_signal"`
+	//StopSignal     syscall.Signal  `json:"stop_signal"`
+	//ContinueSignal syscall.Signal  `json:"cont_signal"`
 }
 
 type Bar struct {
@@ -41,14 +43,15 @@ func (bar *Bar) Start() {
 	header := header{
 		Version:     1,
 		ClickEvents: true,
-		// StopSignal:     20, // SIGHUP
-		// ContinueSignal: 19, // SIGCONT
+		//StopSignal:     syscall.SIGTERM,
+		//ContinueSignal: syscall.SIGCONT,
 	}
 	headerJSON, _ := json.Marshal(header)
 	fmt.Println(string(headerJSON))
 	fmt.Println("[[]")
 	bar.stop = make(chan bool, 3)
 	bar.ReStart()
+	bar.sigHandler()
 }
 
 func (bar *Bar) ReStart() {
@@ -84,6 +87,24 @@ func (bar *Bar) Print() (minInterval int64) {
 	fmt.Println(",[", strings.Join(infoArray, ",\n"), "]")
 
 	return minInterval
+}
+
+func (bar *Bar) sigHandler() {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGCONT)
+	for {
+		sig := <-sigs
+		bar.logger.Printf("Received signal: %q", sig)
+		switch sig {
+		/*case syscall.SIGTERM:
+			bar.Stop()
+		case syscall.SIGCONT:
+			bar.Stop()
+			bar.ReStart()*/
+		case syscall.SIGINT:
+			return
+		}
+	}
 }
 
 func (bar *Bar) update() {

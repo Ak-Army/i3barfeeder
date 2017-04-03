@@ -7,8 +7,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
 	"reflect"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
@@ -66,7 +64,6 @@ func main() {
 
 	bar := config.CreateBar(logger)
 	bar.Start()
-	sigHandler(bar, logger)
 	logger.Println("End")
 	os.Exit(0)
 	defer func () {
@@ -74,22 +71,4 @@ func main() {
 			logger.Printf("Unhandled panic: %v", r)
 		}
 	}()
-}
-
-func sigHandler(bar *gobar.Bar, logger *log.Logger) {
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT)
-	for {
-		sig := <-sigs
-		logger.Printf("Received signal: %q", sig)
-		switch sig {
-		/*case syscall.SIGSTOP:
-			bar.Stop()
-		case syscall.SIGCONT:
-			bar.Stop()
-			bar.ReStart()*/
-		case syscall.SIGINT:
-			return
-		}
-	}
 }

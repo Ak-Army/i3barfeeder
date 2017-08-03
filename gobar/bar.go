@@ -1,15 +1,15 @@
 package gobar
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"log"
-	"time"
-	"bufio"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 )
 
 // Header i3  header
@@ -66,7 +66,6 @@ func (bar *Bar) Stop() {
 	bar.stop <- true
 	bar.stop <- true
 }
-
 
 func (bar *Bar) Print() (minInterval int64) {
 	var infoArray []string
@@ -172,7 +171,7 @@ func (bar *Bar) printItems() {
 		default:
 			minInterval := bar.Print()
 			if minInterval == 0 {
-				break;
+				break
 			}
 			time.Sleep(time.Duration(minInterval) * time.Second)
 		}

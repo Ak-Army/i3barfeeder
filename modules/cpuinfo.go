@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
-	"strconv"
 	"os/exec"
+	"strconv"
 )
 
 type CpuInfo struct {
@@ -67,4 +67,3 @@ func (module CpuInfo) CpuInfo() (cpuUsage float64) {
 	prevTotal = total
 	return
 }
-

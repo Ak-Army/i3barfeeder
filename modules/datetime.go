@@ -1,8 +1,8 @@
 package modules
 
 import (
-	"time"
 	"fmt"
+	"time"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
 )

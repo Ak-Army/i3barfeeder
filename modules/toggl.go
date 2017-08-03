@@ -1,28 +1,28 @@
 package modules
 
 import (
-	"github.com/Ak-Army/i3barfeeder/gobar"
-	"encoding/json"
 	"bytes"
 	"encoding/base64"
-	"io/ioutil"
-	"strconv"
-	"net/http"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
+	"github.com/Ak-Army/i3barfeeder/gobar"
+	"io/ioutil"
+	"net/http"
 	"net/url"
+	"strconv"
+	"time"
 )
 
 const (
 	secondsPerMinute = 60
-	secondsPerHour = 60 * 60
+	secondsPerHour   = 60 * 60
 )
 
 type Toggl struct {
 	gobar.ModuleInterface
-	toggl      toggl
-	defaultWID int64
+	toggl       toggl
+	defaultWID  int64
 	ticketNames []string
 }
 
@@ -45,7 +45,7 @@ func (module *Toggl) InitModule(config gobar.Config) error {
 	if ticketNames, ok := config["ticketNames"].([]interface{}); ok {
 		for _, item := range ticketNames {
 			if itemString, ok := item.(string); ok {
-				module.ticketNames = append(module.ticketNames, itemString);
+				module.ticketNames = append(module.ticketNames, itemString)
 			}
 		}
 	}
@@ -64,7 +64,7 @@ func (module *Toggl) InitModule(config gobar.Config) error {
 			}
 		}
 	}()
-	updateTimer = time.NewTimer(time.Second*3)
+
 	updateTimer = time.AfterFunc(time.Second*3, func() {
 		module.updateCurrentTimeEntry()
 	})
@@ -75,8 +75,9 @@ func (module *Toggl) InitModule(config gobar.Config) error {
 
 func (module Toggl) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	if currentTimeEntry.ID != 0 {
-		info.ShortText = fmt.Sprintf("%s / %s", prettyPrintDuration(int(currentTimeEntry.GetDuration()), true), todayDuration)
-		info.FullText = fmt.Sprintf("%s - %s", currentTimeEntry.Description, info.ShortText)
+		time := fmt.Sprintf("%s / %s", prettyPrintDuration(int(currentTimeEntry.GetDuration()), true), todayDuration)
+		info.ShortText = fmt.Sprintf("%s - %s", currentTimeEntry.Description[0:7], time)
+		info.FullText = fmt.Sprintf("%s - %s", currentTimeEntry.Description, time)
 	} else {
 		info.ShortText = fmt.Sprintf("%s", todayDuration)
 		info.FullText = fmt.Sprintf("%s", info.ShortText)
@@ -98,30 +99,31 @@ func (module Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*g
 			if module.defaultWID != 0 {
 				var newTimeEntry = TimeEntry{
 					Description: "DOTO-2 Általános adminisztrálás",
-					WID: module.defaultWID,
+					WID:         module.defaultWID,
 					CreatedWith: "hunyi",
 				}
 				currentTimeEntry, _ = module.toggl.StartTimeEntry(newTimeEntry)
 			}
 		}
 	case 4: //scroll up, increase
-		currentName = currentName+1
+		currentName = currentName + 1
 		if currentName >= len(module.ticketNames) {
-			currentName = 0;
+			currentName = 0
 		}
 		currentTimeEntry.Description = module.ticketNames[currentName]
 		updateTimeEntry = currentTimeEntry
-		updateTimer.Reset(time.Second*3)
+		updateTimer.Reset(time.Second * 3)
 	case 5: //scroll down, decrease
-		currentName = currentName-1
+		currentName = currentName - 1
 		if currentName < 0 {
-			currentName = len(module.ticketNames)-1;
+			currentName = len(module.ticketNames) - 1
 		}
 		currentTimeEntry.Description = module.ticketNames[currentName]
 		updateTimeEntry = currentTimeEntry
-		updateTimer.Reset(time.Second*3)
+		updateTimer.Reset(time.Second * 3)
 	}
-	return nil, nil
+	info = module.UpdateInfo(info)
+	return &info, nil
 }
 
 func (module Toggl) calcRemainingTime() {
@@ -139,7 +141,9 @@ func (module Toggl) calcRemainingTime() {
 }
 
 func (module Toggl) getCurrentTimeEntry() {
+	//var err error
 	currentTimeEntry, _ = module.toggl.GetCurrentTimeEntry()
+	//fmt.Printf("%+v\n",err);
 }
 
 func (module Toggl) updateCurrentTimeEntry() {
@@ -153,8 +157,7 @@ func prettyPrintDuration(sec int, withSec bool) string {
 	min = sec / secondsPerMinute
 	sec -= min * secondsPerMinute
 
-
-	returnString := "";
+	returnString := ""
 	if hour > 0 {
 		returnString = fmt.Sprintf("%s%02dH ", returnString, hour)
 	}
@@ -185,10 +188,10 @@ type TimeEntry struct {
 }
 
 type toggl struct {
-	client     *http.Client
-	transport  *http.Transport
-	baseUrl    string
-	apiToken   string
+	client    *http.Client
+	transport *http.Transport
+	baseUrl   string
+	apiToken  string
 }
 
 type currentResponse struct {
@@ -202,16 +205,15 @@ type createTimeEntry struct {
 const date_ISO8601 = "2006-01-02T15:04:05+00:00"
 
 func GetToggleClient(apiToken string) toggl {
-	transport := &http.Transport{
-	}
-	baseUrl := "https://www.toggl.com/api/v8"
+	transport := &http.Transport{}
+	baseUrl := "https://toggl.com/api/v8"
 	client := &http.Client{Transport: transport}
 
 	return toggl{
-		client:     client,
-		transport:  transport,
-		baseUrl:    baseUrl,
-		apiToken:    apiToken,
+		client:    client,
+		transport: transport,
+		baseUrl:   baseUrl,
+		apiToken:  apiToken,
 	}
 }
 
@@ -239,8 +241,8 @@ func (toggle toggl) request(method string, endpoint string, param interface{}) (
 		return
 	}
 	defer res.Body.Close()
-	contentType := res.Header.Get("content-type");
-	if (contentType == "application/json; charset=utf-8") {
+	contentType := res.Header.Get("content-type")
+	if contentType == "application/json; charset=utf-8" {
 		response, err = ioutil.ReadAll(res.Body)
 	} else if !(res.StatusCode >= 200 && res.StatusCode < 300) {
 		err = errors.New("Response wrong status code")
@@ -255,28 +257,28 @@ func (toggle toggl) GetCurrentTimeEntry() (TimeEntry, error) {
 		return TimeEntry{}, err
 	}
 	var response = &currentResponse{}
-	err = json.Unmarshal(res, response);
+	err = json.Unmarshal(res, response)
 	if err != nil {
 		return TimeEntry{}, err
 	}
 	return response.Data, nil
 }
 
-func (toggle toggl) StartTimeEntry(timeEntry TimeEntry) (TimeEntry, error)  {
-	createTimeEntry := createTimeEntry{TimeEntry:timeEntry}
+func (toggle toggl) StartTimeEntry(timeEntry TimeEntry) (TimeEntry, error) {
+	createTimeEntry := createTimeEntry{TimeEntry: timeEntry}
 	res, err := toggle.request("POST", "/time_entries/start", createTimeEntry)
 	if err != nil {
 		return TimeEntry{}, err
 	}
 	var response = &currentResponse{}
-	err = json.Unmarshal(res, response);
+	err = json.Unmarshal(res, response)
 	if err != nil {
 		return TimeEntry{}, err
 	}
 	return response.Data, nil
 }
 
-func (toggle toggl) StopTimeEntry(timeEntry TimeEntry) (TimeEntry, error)  {
+func (toggle toggl) StopTimeEntry(timeEntry TimeEntry) (TimeEntry, error) {
 	idString := strconv.FormatInt(timeEntry.ID, 10)
 	res, err := toggle.request("GET", "/time_entries/"+idString+"/stop", nil)
 
@@ -284,57 +286,57 @@ func (toggle toggl) StopTimeEntry(timeEntry TimeEntry) (TimeEntry, error)  {
 		return TimeEntry{}, err
 	}
 	var response = &currentResponse{}
-	err = json.Unmarshal(res, response);
+	err = json.Unmarshal(res, response)
 	if err != nil {
 		return TimeEntry{}, err
 	}
 	return response.Data, nil
 }
 
-func (toggle toggl) GetTimeEntry(id int) (TimeEntry, error)  {
+func (toggle toggl) GetTimeEntry(id int) (TimeEntry, error) {
 	idString := strconv.Itoa(id)
 	res, err := toggle.request("GET", "/time_entries/"+idString, nil)
 	if err != nil {
 		return TimeEntry{}, err
 	}
 	var response = &currentResponse{}
-	err = json.Unmarshal(res, response);
+	err = json.Unmarshal(res, response)
 	if err != nil {
 		return TimeEntry{}, err
 	}
 	return response.Data, nil
 }
 
-func (toggle toggl) GetTimeEntries(fromDate time.Time, toDate time.Time) ([]TimeEntry, error)  {
+func (toggle toggl) GetTimeEntries(fromDate time.Time, toDate time.Time) ([]TimeEntry, error) {
 	var response = []TimeEntry{}
 	endpoint := "/time_entries"
 	if !fromDate.IsZero() {
-		endpoint+= "?start_date="+url.QueryEscape(fromDate.Format(date_ISO8601))
+		endpoint += "?start_date=" + url.QueryEscape(fromDate.Format(date_ISO8601))
 		if !toDate.IsZero() {
-			endpoint+= "&end_date="+url.QueryEscape(toDate.Format(date_ISO8601))
+			endpoint += "&end_date=" + url.QueryEscape(toDate.Format(date_ISO8601))
 		}
 	}
 	res, err := toggle.request("GET", endpoint, nil)
 	if err != nil {
 		return response, err
 	}
-	err = json.Unmarshal(res, &response);
+	err = json.Unmarshal(res, &response)
 	if err != nil {
 		return response, err
 	}
 	return response, nil
 }
 
-func (toggle toggl) UpdateTimeEntry(timeEntry TimeEntry) (TimeEntry, error)  {
+func (toggle toggl) UpdateTimeEntry(timeEntry TimeEntry) (TimeEntry, error) {
 	idString := strconv.FormatInt(timeEntry.ID, 10)
-	createTimeEntry := createTimeEntry{TimeEntry:timeEntry}
+	createTimeEntry := createTimeEntry{TimeEntry: timeEntry}
 	res, err := toggle.request("PUT", "/time_entries/"+idString, createTimeEntry)
 
 	if err != nil {
 		return TimeEntry{}, err
 	}
 	var response = &currentResponse{}
-	err = json.Unmarshal(res, response);
+	err = json.Unmarshal(res, response)
 	if err != nil {
 		return TimeEntry{}, err
 	}

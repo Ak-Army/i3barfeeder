@@ -1,11 +1,11 @@
 package gobar
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"reflect"
 	"time"
-	"encoding/json"
 )
 
 type BlockAlign string
@@ -34,7 +34,7 @@ func (ba *BlockAlign) UnmarshalJSON(data []byte) error {
 	}
 	return &json.UnsupportedValueError{
 		Value: reflect.ValueOf(align),
-		Str: string(align),
+		Str:   string(align),
 	}
 }
 func (ba *BlockAlign) MarshalJSON() ([]byte, error) {
@@ -64,13 +64,12 @@ func (bm *BlockMarkup) UnmarshalJSON(data []byte) error {
 
 	return &json.UnsupportedValueError{
 		Value: reflect.ValueOf(markup),
-		Str: string(markup),
+		Str:   string(markup),
 	}
 }
 func (bm *BlockMarkup) MarshalJSON() ([]byte, error) {
 	return json.Marshal(string(*bm))
 }
-
 
 type BlockInfo struct {
 	FullText            string      `json:"full_text"`
@@ -102,13 +101,13 @@ type ModuleInterface interface {
 
 // Block i3  item
 type Block struct {
-	ModuleName   string          `json:"module"`
-	Label        string          `json:"label"`
-	Interval     int64           `json:"interval"`
-	Info         BlockInfo       `json:"info,omitempty"`
-	Config       Config          `json:"config,omitempty"`
-	module       ModuleInterface
-	lastUpdate   int64
+	ModuleName string    `json:"module"`
+	Label      string    `json:"label"`
+	Interval   int64     `json:"interval"`
+	Info       BlockInfo `json:"info,omitempty"`
+	Config     Config    `json:"config,omitempty"`
+	module     ModuleInterface
+	lastUpdate int64
 }
 
 type UpdateChannelMsg struct {
@@ -116,7 +115,7 @@ type UpdateChannelMsg struct {
 	Info BlockInfo
 }
 
-func (block *Block) CreateModule(id int,logger *log.Logger) (err error) {
+func (block *Block) CreateModule(id int, logger *log.Logger) (err error) {
 	var ok bool
 	if name, ok := typeRegistry[block.ModuleName]; ok {
 		v := reflect.New(name)
@@ -136,9 +135,9 @@ func (block *Block) CreateModule(id int,logger *log.Logger) (err error) {
 	if err != nil {
 		block.Label = "ERR: "
 		block.Info = BlockInfo{
-			TextColor : "#FF0000",
-			FullText :  err.Error(),
-			Name: "StaticText",
+			TextColor: "#FF0000",
+			FullText:  err.Error(),
+			Name:      "StaticText",
 		}
 		block.Config = Config{}
 		v := reflect.New(typeRegistry["StaticText"])
@@ -159,7 +158,7 @@ func (block Block) Start(ID int, updateChannel chan<- UpdateChannelMsg) {
 		updateChannel <- m
 		block.lastUpdate = time.Now().Unix()
 		if block.Interval == 0 {
-			break;
+			break
 		}
 		time.Sleep(time.Duration(block.Interval) * time.Second)
 	}

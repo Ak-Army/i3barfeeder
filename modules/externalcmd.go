@@ -39,9 +39,8 @@ func (module ExternalCmd) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 }
 
 func (module ExternalCmd) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
-	if module.onClick != nil {
+	if cm.Button == 3 && module.onClick != nil {
 		return nil, module.onClick.Start()
 	}
 	return nil, nil
 }
-

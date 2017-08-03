@@ -1,13 +1,13 @@
 package modules
 
 import (
-	"syscall"
 	"fmt"
 	"reflect"
+	"syscall"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
-	"strings"
 	"os/exec"
+	"strings"
 )
 
 type DiskUsage struct {

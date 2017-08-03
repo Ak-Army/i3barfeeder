@@ -1,17 +1,17 @@
 package modules
 
 import (
-	"reflect"
-	"bytes"
-	"os"
-	"fmt"
 	"bufio"
+	"bytes"
+	"fmt"
 	"io"
+	"os"
+	"reflect"
 )
 
 type barConfig struct {
-	barSize int
-	barFull string
+	barSize  int
+	barFull  string
 	barEmpty string
 }
 
@@ -35,7 +35,6 @@ func makeBar(freePercent float64, barConfig barConfig) string {
 	return bar.String()
 }
 
-
 func readLines(fileName string, callback func(string) bool) {
 	fin, err := os.Open(fileName)
 	if err != nil {
@@ -51,4 +50,3 @@ func readLines(fileName string, callback func(string) bool) {
 		}
 	}
 }
-

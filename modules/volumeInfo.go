@@ -2,8 +2,8 @@ package modules
 
 import (
 	"fmt"
-	"reflect"
 	"os/exec"
+	"reflect"
 	"regexp"
 	"strconv"
 
@@ -20,7 +20,6 @@ type VolumeInfo struct {
 	regex     *regexp.Regexp
 }
 
-
 func (module *VolumeInfo) InitModule(config gobar.Config) error {
 	module.path = keyExists(config, "path", reflect.String, "/").(string)
 
@@ -31,12 +30,12 @@ func (module *VolumeInfo) InitModule(config gobar.Config) error {
 	module.mixer = keyExists(config, "mixer", reflect.String, "default").(string)
 	module.step = keyExists(config, "step", reflect.Int, 1).(int)
 	if sControl, ok := config["scontrol"].(string); ok {
-		module.sControl = sControl;
+		module.sControl = sControl
 	} else {
 		sControl, err := exec.Command("sh", "-c", "amixer -D default scontrols").Output()
 		if err == nil {
 			regex, _ := regexp.Compile(`'(\w+)',0`)
-			module.sControl = regex. FindStringSubmatch(string(sControl))[1]
+			module.sControl = regex.FindStringSubmatch(string(sControl))[1]
 		} else {
 			return fmt.Errorf("Cant find scontrol for mixer: %s, error: %s", module.mixer, err)
 		}
@@ -100,4 +99,3 @@ func (module VolumeInfo) volumeInfo(out string) float64 {
 	}
 	return float64(0)
 }
-

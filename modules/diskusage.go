@@ -27,7 +27,7 @@ func (module *DiskUsage) InitModule(config gobar.Config) error {
 
 func (module DiskUsage) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	free, total := module.diskUsage()
-	freePercent := 100 * (free / total)
+	freePercent := 100-(100 * (free / total))
 	info.ShortText = fmt.Sprintf("%d %s", int(freePercent), "%")
 	info.FullText = makeBar(freePercent, module.barConfig)
 	return info

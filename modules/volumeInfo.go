@@ -32,7 +32,7 @@ func (module *VolumeInfo) InitModule(config gobar.Config) error {
 	if sControl, ok := config["scontrol"].(string); ok {
 		module.sControl = sControl
 	} else {
-		sControl, err := exec.Command("sh", "-c", "amixer -D default scontrols").Output()
+		sControl, err := exec.Command("sh", "-c", "amixer -D "+module.mixer+" scontrols").Output()
 		if err == nil {
 			regex, _ := regexp.Compile(`'(\w+)',0`)
 			module.sControl = regex.FindStringSubmatch(string(sControl))[1]

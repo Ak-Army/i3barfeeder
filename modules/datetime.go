@@ -3,9 +3,9 @@ package modules
 import (
 	"fmt"
 	"time"
+	"os/exec"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
-	"os/exec"
 )
 
 type DateTime struct {

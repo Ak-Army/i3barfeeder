@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"os/exec"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
-	"os/exec"
 )
 
 type MemInfo struct {

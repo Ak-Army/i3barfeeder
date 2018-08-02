@@ -6,12 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Ak-Army/i3barfeeder/gobar"
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os/exec"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/Ak-Army/i3barfeeder/gobar"
 )
 
 const (
@@ -29,7 +33,7 @@ type Toggl struct {
 var currentTimeEntry TimeEntry
 var updateTimeEntry TimeEntry
 var todayDuration string
-var currentName int = 0
+var currentName = 0
 var updateTimer *time.Timer
 
 func (module *Toggl) InitModule(config gobar.Config) error {
@@ -75,9 +79,13 @@ func (module *Toggl) InitModule(config gobar.Config) error {
 
 func (module Toggl) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	if currentTimeEntry.ID != 0 {
-		time := fmt.Sprintf("%s / %s", prettyPrintDuration(int(currentTimeEntry.GetDuration()), true), todayDuration)
-		info.ShortText = fmt.Sprintf("%s - %s", currentTimeEntry.Description[0:7], time)
-		info.FullText = fmt.Sprintf("%s - %s", currentTimeEntry.Description, time)
+		prettyTime := fmt.Sprintf("%s / %s", prettyPrintDuration(int(currentTimeEntry.GetDuration()), true), todayDuration)
+		shortDesc := currentTimeEntry.Description
+		if len(currentTimeEntry.Description) > 7 {
+			shortDesc = currentTimeEntry.Description[0:7]
+		}
+		info.ShortText = fmt.Sprintf("%s - %s", shortDesc, prettyTime)
+		info.FullText = fmt.Sprintf("%s - %s", currentTimeEntry.Description, prettyTime)
 	} else {
 		info.ShortText = fmt.Sprintf("%s", todayDuration)
 		info.FullText = fmt.Sprintf("%s", info.ShortText)
@@ -91,6 +99,33 @@ func (module Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*g
 	updateTimer.Stop()
 	updateTimeEntry = TimeEntry{}
 	switch cm.Button {
+	case 2: //middle button
+		now := time.Now()
+		from := now.AddDate(0, -1, 0)
+		entries, err := module.toggl.GetTimeEntries(from, now)
+		daySums := make(map[string]int64)
+		if err == nil {
+			for _, entry := range entries {
+				day := entry.Start[0:10]
+				daySums[day] = daySums[day] + entry.Duration
+			}
+
+			copyCmd := exec.Command("xclip", "-selection", "c")
+			in, err := copyCmd.StdinPipe()
+			if err == nil {
+				err = copyCmd.Start()
+				defer copyCmd.Wait()
+				defer in.Close()
+				if err == nil {
+					var output []string
+					for day, daySum := range daySums {
+						output = append(output, day+" "+strconv.FormatInt((daySum-28800)/60, 10))
+					}
+					sort.Strings(output)
+					_, err = in.Write([]byte(strings.Join(output, "\n")))
+				}
+			}
+		}
 	case 3: //right click, start/stop
 		if currentTimeEntry.ID != 0 {
 			module.toggl.StopTimeEntry(currentTimeEntry)
@@ -98,7 +133,7 @@ func (module Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*g
 		} else {
 			if module.defaultWID != 0 {
 				var newTimeEntry = TimeEntry{
-					Description: "DOTO-2 Általános adminisztrálás",
+					Description: module.ticketNames[0],
 					WID:         module.defaultWID,
 					CreatedWith: "hunyi",
 				}
@@ -130,13 +165,15 @@ func (module Toggl) calcRemainingTime() {
 	now := time.Now()
 	t := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	timeEntries, err := module.toggl.GetTimeEntries(t, time.Time{})
-	todayDuration = ""
+	todayDuration = "0 / 0"
 	if err == nil {
 		var dur float64 = 0.0
 		for _, timeEntry := range timeEntries {
 			dur += timeEntry.GetDuration()
 		}
-		todayDuration = prettyPrintDuration(int(dur), false)
+		if int(dur) > 0 {
+			todayDuration = prettyPrintDuration(int(dur), false)
+		}
 	}
 }
 

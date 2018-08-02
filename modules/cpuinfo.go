@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-
-	"github.com/Ak-Army/i3barfeeder/gobar"
 	"os/exec"
 	"strconv"
+
+	"github.com/Ak-Army/i3barfeeder/gobar"
 )
 
 type CpuInfo struct {

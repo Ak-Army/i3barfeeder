@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
+	"os/exec"
 )
 
 type DateTime struct {
@@ -48,5 +49,5 @@ func (module DateTime) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	return info
 }
 func (slot DateTime) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
-	return nil, nil
+	return nil, exec.Command("gsimplecal").Run()
 }

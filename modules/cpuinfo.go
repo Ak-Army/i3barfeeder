@@ -1,44 +1,51 @@
 package modules
 
 import (
+	"encoding/json"
 	"fmt"
-	"reflect"
-	"strings"
 	"os/exec"
 	"strconv"
+	"strings"
+
+	"github.com/Ak-Army/xlog"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
 )
 
+func init() {
+	gobar.AddModule("CpuInfo", func() gobar.ModuleInterface {
+		return &CpuInfo{
+			barConfig: defaultBarConfig(),
+		}
+	})
+}
+
 type CpuInfo struct {
 	gobar.ModuleInterface
-	path      string
 	barConfig barConfig
 }
 
 var prevTotal, prevIdle uint64
 
-func (module *CpuInfo) InitModule(config gobar.Config) error {
-	module.path = keyExists(config, "path", reflect.String, "/").(string)
-	module.barConfig.barSize = keyExists(config, "barSize", reflect.Int, 10).(int)
-	module.barConfig.barFull = keyExists(config, "barFull", reflect.String, "■").(string)
-	module.barConfig.barEmpty = keyExists(config, "barEmpty", reflect.String, "□").(string)
-
+func (m *CpuInfo) InitModule(config json.RawMessage, log xlog.Logger) error {
+	if config != nil {
+		return json.Unmarshal(config, &m.barConfig)
+	}
 	return nil
 }
 
-func (module CpuInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
-	cpuUsage := module.CpuInfo()
+func (m CpuInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
+	cpuUsage := m.CpuInfo()
 	info.ShortText = fmt.Sprintf("%d %s", int(cpuUsage), "%")
-	info.FullText = makeBar(cpuUsage, module.barConfig)
+	info.FullText = makeBar(cpuUsage, m.barConfig)
 	return info
 }
-func (module CpuInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
+func (m CpuInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	split := strings.Split("gnome-system-monitor -p", " ")
 	return nil, exec.Command(split[0], split[1:]...).Start()
 }
 
-func (module CpuInfo) CpuInfo() (cpuUsage float64) {
+func (m CpuInfo) CpuInfo() (cpuUsage float64) {
 	// Return the percent utilization of the CPU.
 	var idle, total uint64
 	callback := func(line string) bool {

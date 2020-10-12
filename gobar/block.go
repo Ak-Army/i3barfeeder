@@ -3,73 +3,10 @@ package gobar
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-	"reflect"
 	"time"
+
+	"github.com/Ak-Army/xlog"
 )
-
-type BlockAlign string
-
-const (
-	AlignCenter BlockAlign = "center"
-	AlignRight  BlockAlign = "right"
-	AlignLeft   BlockAlign = "left"
-)
-
-func (ba *BlockAlign) UnmarshalJSON(data []byte) error {
-	var align string
-	if err := json.Unmarshal(data, &align); err != nil {
-		return err
-	}
-	switch align {
-	case string(AlignCenter):
-		*ba = AlignCenter
-		return nil
-	case string(AlignRight):
-		*ba = AlignRight
-		return nil
-	case string(AlignLeft):
-		*ba = AlignLeft
-		return nil
-	}
-	return &json.UnsupportedValueError{
-		Value: reflect.ValueOf(align),
-		Str:   string(align),
-	}
-}
-func (ba *BlockAlign) MarshalJSON() ([]byte, error) {
-	return json.Marshal(string(*ba))
-}
-
-type BlockMarkup string
-
-const (
-	MarkupNone  BlockMarkup = "none"
-	MarkupPango BlockMarkup = "pango"
-)
-
-func (bm *BlockMarkup) UnmarshalJSON(data []byte) error {
-	var markup string
-	if err := json.Unmarshal(data, &markup); err != nil {
-		return err
-	}
-	switch markup {
-	case string(MarkupNone):
-		*bm = MarkupNone
-		return nil
-	case string(MarkupPango):
-		*bm = MarkupPango
-		return nil
-	}
-
-	return &json.UnsupportedValueError{
-		Value: reflect.ValueOf(markup),
-		Str:   string(markup),
-	}
-}
-func (bm *BlockMarkup) MarshalJSON() ([]byte, error) {
-	return json.Marshal(string(*bm))
-}
 
 type BlockInfo struct {
 	FullText            string      `json:"full_text"`
@@ -91,21 +28,13 @@ type BlockInfo struct {
 	BorderRight         int         `json:"border_right"`
 }
 
-type Config map[string]interface{}
-
-type ModuleInterface interface {
-	InitModule(config Config) error
-	UpdateInfo(info BlockInfo) BlockInfo
-	HandleClick(cm ClickMessage, info BlockInfo) (*BlockInfo, error)
-}
-
 // Block i3  item
 type Block struct {
-	ModuleName string    `json:"module"`
-	Label      string    `json:"label"`
-	Interval   int64     `json:"interval"`
-	Info       BlockInfo `json:"info,omitempty"`
-	Config     Config    `json:"config,omitempty"`
+	ModuleName string       `json:"module"`
+	Label      string       `json:"label"`
+	Interval   int64        `json:"interval"`
+	Info       BlockInfo    `json:"info,omitempty"`
+	Config     json.RawMessage `json:"config,omitempty"`
 	module     ModuleInterface
 	lastUpdate int64
 }
@@ -115,23 +44,18 @@ type UpdateChannelMsg struct {
 	Info BlockInfo
 }
 
-func (block *Block) CreateModule(id int, logger *log.Logger) (err error) {
-	var ok bool
-	if name, ok := typeRegistry[block.ModuleName]; ok {
-		v := reflect.New(name)
-		if block.module, ok = v.Interface().(ModuleInterface); ok {
-			err = block.module.InitModule(block.Config)
-		} else {
-			err = fmt.Errorf("Cannot create instance of `%s`", name)
-		}
-	} else {
-		err = fmt.Errorf("Module not found: `%s`", block.ModuleName)
-	}
+func (block *Block) CreateModule(id int, log xlog.Logger) error {
 	block.Info.Instance = fmt.Sprintf("id_%d", id)
 	if block.Info.Name == "" {
 		block.Info.Name = block.ModuleName
 	}
-
+	var err error
+	if module, ok := moduleRegistry[block.ModuleName]; ok {
+		block.module = module()
+		err = block.module.InitModule(block.Config, log)
+	} else {
+		err = fmt.Errorf("module not found: `%s`", block.ModuleName)
+	}
 	if err != nil {
 		block.Label = "ERR: "
 		block.Info = BlockInfo{
@@ -139,11 +63,9 @@ func (block *Block) CreateModule(id int, logger *log.Logger) (err error) {
 			FullText:  err.Error(),
 			Name:      "StaticText",
 		}
-		block.Config = Config{}
-		v := reflect.New(typeRegistry["StaticText"])
-		if block.module, ok = v.Interface().(ModuleInterface); ok {
-			block.module.InitModule(block.Config)
-		}
+		block.Config = json.RawMessage{}
+		block.module = moduleRegistry["StaticText"]()
+		block.module.InitModule(block.Config, log)
 	}
 	return err
 }
@@ -166,10 +88,4 @@ func (block Block) Start(ID int, updateChannel chan<- UpdateChannelMsg) {
 
 func (block Block) HandleClick(cm ClickMessage) (*BlockInfo, error) {
 	return block.module.HandleClick(cm, block.Info)
-}
-
-var typeRegistry = make(map[string]reflect.Type)
-
-func AddModule(name string, module reflect.Type) {
-	typeRegistry[name] = module
 }

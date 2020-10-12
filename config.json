@@ -4,16 +4,63 @@
   },
   "blocks": [{
     "module": "Toggl",
-    "label":"",
+    "label": "",
     "config": {
-      "apiToken": "3a88be1084c6cd974c9f36c7f94b61b8",
+      "apiToken": "",
+      "ytApiUrl": "",
+      "ytApiToken": "",
+      "tpApiUrl": "",
+      "tpApiToken": "",
       "defaultWID": 336995,
       "ticketNames": [
-        "DOTO-1 TV javítás",
-        "DOTO-2 Általános adminisztrálás",
-        "DOTO-3 HR issues",
-        "DOTO-7 Planning, afterplanning, PRM"
-
+        {
+          "name": "Általános adminisztrálás",
+          "ytId": "DOTO-2",
+          "projects": [
+            ["General", "Admin, reporting","#1799"],
+            ["General", "Email, Slack, Comments","#1801"]
+          ]
+        }, {
+            "name": "HR issues",
+            "ytId": "DOTO-3",
+            "projects": [
+              ["General","Feedback","#1792"],
+              ["General","Learning","#1793"],
+              ["DEV","Town Hall","#1794"],
+              ["General","Break, Coffee","#1800"],
+              ["General","HR","#1802"],
+              ["Squad","1:1","#1804"],
+              ["Squad","Retro","#1811"],
+              ["DEV","Retro","#2065"]
+            ]
+        },{
+          "name": "Adhoc issues",
+          "ytId": "DOTO-4",
+          "projects": [
+            ["General","Ad-hoc Meeting","#1798"],
+            ["Squad","Ad-hoc Meeting","#1805"],
+            ["General","Other Role","#1894"],
+            ["Developer","Maintenance","#2098"]
+          ]
+        },{
+          "name": "Multiple release",
+          "ytId": "DOTO-5",
+          "projects": [
+            ["Developer","Release","#1795"]
+          ]
+        },{
+          "name": "Planning, afterplanning, PRM",
+          "ytId": "DOTO-7",
+          "projects": [
+            ["General","Meeting","#1803"],
+            ["Squad","Meeting","#1806"],
+            ["Squad","Daily Standup","#1807"],
+            ["Squad","Demo","#1808"],
+            ["Squad","Grooming","#1809"],
+            ["Squad","Iteration Planning","#1810"],
+            ["General","Post Mortem","#1839"]
+          ]
+        }
       ]
     },
     "interval": 1,
@@ -23,7 +70,7 @@
     }
   },{
     "module": "ExternalCmd",
-    "label":"",
+    "label": "",
     "config": {
       "command": "apt-get --just-print upgrade |grep  Inst | wc -l"
     },
@@ -34,35 +81,11 @@
     }
   },{
     "module": "VolumeInfo",
-    "label":"V:",
+    "label": "V:",
     "interval": 1,
     "info": {
       "border_bottom": 2,
       "border": "#ff00ff"
-    }
-  },{
-    "module": "CpuInfo",
-    "label": "",
-    "interval": 2,
-    "info": {
-      "border_bottom": 2,
-      "border": "#ffffff"
-    }
-  },{
-    "module": "MemInfo",
-    "label": "",
-    "interval": 5,
-    "info": {
-      "border_bottom": 2,
-      "border": "#00ff00"
-    }
-  },{
-    "module": "DiskUsage",
-    "label": "",
-    "interval": 10,
-    "info": {
-      "border_bottom": 2,
-      "border": "#ffff00"
     }
   },{
     "module": "DateTime",

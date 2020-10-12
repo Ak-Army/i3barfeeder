@@ -1,0 +1,49 @@
+{
+  "defaults": {
+    "color": "#ffffff"
+  },
+  "blocks": [{
+    "module": "CpuInfo",
+    "label": "",
+    "interval": 2,
+    "info": {
+      "border_bottom": 2,
+      "border": "#ffffff"
+    }
+  },{
+    "module": "MemInfo",
+    "label": "",
+    "interval": 5,
+    "info": {
+      "border_bottom": 2,
+      "border": "#00ff00"
+    }
+  },{
+    "module": "DiskUsage",
+    "label": "",
+    "interval": 10,
+    "info": {
+      "border_bottom": 2,
+      "border": "#ffff00"
+    }
+  },{
+    "module": "Battery",
+    "label": "\uF242",
+    "interval": 10,
+    "info": {
+      "border_bottom": 2,
+      "border": "#ffff00"
+    }
+  },{
+    "module": "Network",
+    "label": "\uF1EB",
+    "interval": 3,
+    "config": {
+      "interfaceName": "wlp2s0"
+    },
+    "info": {
+      "border_bottom": 2,
+      "border": "#ffff00"
+    }
+  }]
+}

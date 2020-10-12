@@ -1,60 +1,70 @@
 package modules
 
 import (
+	"encoding/json"
 	"fmt"
 	"os/exec"
-	"reflect"
 	"regexp"
 	"strconv"
+
+	"github.com/Ak-Army/xlog"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
 )
 
+func init() {
+	gobar.AddModule("VolumeInfo", func() gobar.ModuleInterface {
+		return &VolumeInfo{
+			Mixer: "default",
+			Step: 1,
+			barConfig: defaultBarConfig(),
+		}
+	})
+}
+
 type VolumeInfo struct {
 	gobar.ModuleInterface
-	path      string
+	Mixer     string `json:"mixer"`
+	SControl  string `json:"sControl"`
+	Step      int `json:"step"`
 	barConfig barConfig
-	mixer     string
-	sControl  string
-	step      int
 	regex     *regexp.Regexp
 }
 
-func (module *VolumeInfo) InitModule(config gobar.Config) error {
-	module.path = keyExists(config, "path", reflect.String, "/").(string)
+func (m *VolumeInfo) InitModule(config json.RawMessage, log xlog.Logger) error {
+	if config != nil {
+		if err := json.Unmarshal(config, m); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(config, &m.barConfig); err != nil {
+			return err
+		}
+	}
 
-	module.barConfig.barSize = keyExists(config, "barSize", reflect.Int, 10).(int)
-	module.barConfig.barFull = keyExists(config, "barFull", reflect.String, "■").(string)
-	module.barConfig.barEmpty = keyExists(config, "barEmpty", reflect.String, "□").(string)
-
-	module.mixer = keyExists(config, "mixer", reflect.String, "default").(string)
-	module.step = keyExists(config, "step", reflect.Int, 1).(int)
-	if sControl, ok := config["scontrol"].(string); ok {
-		module.sControl = sControl
-	} else {
-		sControl, err := exec.Command("sh", "-c", "amixer -D "+module.mixer+" scontrols").Output()
+	if m.SControl == "" {
+		sControl, err := exec.Command("sh", "-c", "amixer -D "+m.Mixer+" scontrols").Output()
 		if err == nil {
 			regex, _ := regexp.Compile(`'(\w+)',0`)
-			module.sControl = regex.FindStringSubmatch(string(sControl))[1]
+			m.SControl = regex.FindStringSubmatch(string(sControl))[1]
 		} else {
-			return fmt.Errorf("Cant find scontrol for mixer: %s, error: %s", module.mixer, err)
+			return fmt.Errorf("unable to find scontrol for mixer: %s, error: %s", m.Mixer, err)
 		}
 	}
 	regex, err := regexp.Compile(`(\d+) \[(\d+)%\].*\[(\w+)\]`)
 	if err != nil {
-		return fmt.Errorf("Regex error: %s", err)
+		return fmt.Errorf("regex error: %s", err)
 	}
-	module.regex = regex
+	m.regex = regex
 
 	return nil
 }
 
-func (module VolumeInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
-	out, err := exec.Command("sh", "-c", "amixer -D "+module.mixer+" get "+module.sControl).Output()
+func (m VolumeInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
+	out, err := exec.Command("sh", "-c", "amixer -D "+m.Mixer+" get "+m.SControl).Output()
 	if err == nil {
-		currentVolume := module.volumeInfo(string(out))
+		currentVolume := m.volumeInfo(string(out))
 		info.ShortText = fmt.Sprintf("%d%s", int(currentVolume), "%")
-		info.FullText = makeBar(float64(currentVolume), module.barConfig)
+		info.FullText = makeBar(float64(currentVolume), m.barConfig)
 	}
 
 	if err != nil {
@@ -65,34 +75,34 @@ func (module VolumeInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	return info
 }
 
-//{"name":"VolumeInfo","instance":"id_1","button":5,"x":2991,"y":12}
-func (module VolumeInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
+// {"name":"VolumeInfo","instance":"id_1","button":5,"x":2991,"y":12}
+func (m VolumeInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	var cmd string
 	switch cm.Button {
-	case 3: //right click, mute/unmute
-		cmd = fmt.Sprintf("amixer -D %s sset %s toggle", module.mixer, module.sControl)
-	case 4: //scroll up, increase
-		cmd = fmt.Sprintf("amixer -D %s sset %s %d%%+ unmute", module.mixer, module.sControl, module.step)
-	case 5: //scroll down, decrease
-		cmd = fmt.Sprintf("amixer -D %s sset %s %d%%- unmute", module.mixer, module.sControl, module.step)
+	case 3: // right click, mute/unmute
+		cmd = fmt.Sprintf("amixer -D %s sset %s toggle", m.Mixer, m.SControl)
+	case 4: // scroll up, increase
+		cmd = fmt.Sprintf("amixer -D %s sset %s %d%%+ unmute", m.Mixer, m.SControl, m.Step)
+	case 5: // scroll down, decrease
+		cmd = fmt.Sprintf("amixer -D %s sset %s %d%%- unmute", m.Mixer, m.SControl, m.Step)
 	}
 	if cmd != "" {
 		out, err := exec.Command("sh", "-c", cmd).Output()
 		if err == nil {
-			currentVolume := module.volumeInfo(string(out))
+			currentVolume := m.volumeInfo(string(out))
 			info.ShortText = fmt.Sprintf("%d%s", int(currentVolume), "%")
-			info.FullText = makeBar(float64(currentVolume), module.barConfig)
+			info.FullText = makeBar(float64(currentVolume), m.barConfig)
 		}
 	}
 	return &info, nil
 }
 
-func (module VolumeInfo) volumeInfo(out string) float64 {
-	volumes := module.regex.FindStringSubmatch(out)
+func (m VolumeInfo) volumeInfo(out string) float64 {
+	volumes := m.regex.FindStringSubmatch(out)
 	if len(volumes) == 0 || volumes[3] == "off" {
 		return float64(0)
 	} else {
-		currentVolume, err := strconv.ParseFloat(module.regex.FindStringSubmatch(string(out))[2], 64)
+		currentVolume, err := strconv.ParseFloat(m.regex.FindStringSubmatch(string(out))[2], 64)
 		if err == nil {
 			return float64(currentVolume)
 		}

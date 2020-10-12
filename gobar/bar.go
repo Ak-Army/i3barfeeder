@@ -4,25 +4,26 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/Ak-Army/xlog"
 )
 
 // Header i3  header
 type header struct {
 	Version     int  `json:"version"`
 	ClickEvents bool `json:"click_events"`
-	//StopSignal     syscall.Signal  `json:"stop_signal"`
-	//ContinueSignal syscall.Signal  `json:"cont_signal"`
+	// StopSignal     syscall.Signal  `json:"stop_signal"`
+	// ContinueSignal syscall.Signal  `json:"cont_signal"`
 }
 
 type Bar struct {
 	blocks        []Block
-	logger        *log.Logger
+	log           xlog.Logger
 	updateChannel chan UpdateChannelMsg
 	stop          chan bool
 }
@@ -43,8 +44,8 @@ func (bar *Bar) Start() {
 	header := header{
 		Version:     1,
 		ClickEvents: true,
-		//StopSignal:     syscall.SIGTERM,
-		//ContinueSignal: syscall.SIGCONT,
+		// StopSignal:     syscall.SIGTERM,
+		// ContinueSignal: syscall.SIGCONT,
 	}
 	headerJSON, _ := json.Marshal(header)
 	fmt.Println(string(headerJSON))
@@ -75,7 +76,7 @@ func (bar *Bar) Print() (minInterval int64) {
 
 		info, err := json.Marshal(item.Info)
 		if err != nil {
-			bar.logger.Printf("ERROR: %q", err)
+			bar.log.Error("ERROR: %q", err)
 		} else {
 			infoArray = append(infoArray, string(info))
 		}
@@ -93,7 +94,7 @@ func (bar *Bar) sigHandler() {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGCONT)
 	for {
 		sig := <-sigs
-		bar.logger.Printf("Received signal: %q", sig)
+		bar.log.Debugf("Received signal: %q", sig)
 		switch sig {
 		/*case syscall.SIGTERM:
 			bar.Stop()
@@ -110,7 +111,7 @@ func (bar *Bar) update() {
 	for {
 		select {
 		case <-bar.stop:
-			bar.logger.Println("update")
+			bar.log.Debug("Stop update")
 			return
 		case m := <-bar.updateChannel:
 			bar.blocks[m.ID].Info = m.Info
@@ -122,7 +123,7 @@ func (bar *Bar) handleClick() {
 	for {
 		select {
 		case <-bar.stop:
-			bar.logger.Println("handleClick")
+			bar.log.Debug("Stop handleClick")
 			return
 		default:
 			bio := bufio.NewReader(os.Stdin)
@@ -142,13 +143,13 @@ func (bar *Bar) handleClick() {
 
 			err = json.Unmarshal(line, &clickMessage)
 			if err == nil {
-				bar.logger.Printf("Click: line: %s, cm:%+v", string(line), clickMessage)
+				bar.log.Debugf("Click: line: %s, cm:%+v", string(line), clickMessage)
 				for i, block := range bar.blocks {
 					if clickMessage.isMatch(block) {
-						bar.logger.Println("Click: handled")
+						bar.log.Debug("Click: handled")
 						info, err := block.HandleClick(clickMessage)
 						if err != nil {
-							bar.logger.Println("Click handle error: %s", err.Error())
+							bar.log.Debug("Click: error: ", err.Error())
 						}
 						if info != nil {
 							bar.blocks[i].Info = *info
@@ -157,7 +158,6 @@ func (bar *Bar) handleClick() {
 					}
 				}
 			}
-			time.Sleep(1)
 		}
 	}
 }
@@ -166,7 +166,7 @@ func (bar *Bar) printItems() {
 	for {
 		select {
 		case <-bar.stop:
-			bar.logger.Println("printItems")
+			bar.log.Debug("Stop printItems")
 			return
 		default:
 			minInterval := bar.Print()

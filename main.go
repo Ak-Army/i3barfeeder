@@ -5,16 +5,16 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
-	"reflect"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
-	"github.com/Ak-Army/i3barfeeder/modules"
+	_ "github.com/Ak-Army/i3barfeeder/modules"
+
+	"github.com/Ak-Army/xlog"
 )
 
-func loadConfig(path string) (barConfig gobar.Configuration, err error) {
-	barConfig = gobar.Configuration{}
+func loadConfig(path string) (barConfig gobar.Config, err error) {
+	barConfig = gobar.Config{}
 	text, err := ioutil.ReadFile(path)
 	if err != nil {
 		return
@@ -30,45 +30,41 @@ func checkErr(err error, msg string) {
 	}
 }
 
-func initModules() {
-	gobar.AddModule("StaticText", reflect.TypeOf(modules.StaticText{}))
-	gobar.AddModule("DateTime", reflect.TypeOf(modules.DateTime{}))
-	gobar.AddModule("ExternalCmd", reflect.TypeOf(modules.ExternalCmd{}))
-	gobar.AddModule("DiskUsage", reflect.TypeOf(modules.DiskUsage{}))
-	gobar.AddModule("MemInfo", reflect.TypeOf(modules.MemInfo{}))
-	gobar.AddModule("CpuInfo", reflect.TypeOf(modules.CpuInfo{}))
-	gobar.AddModule("VolumeInfo", reflect.TypeOf(modules.VolumeInfo{}))
-	gobar.AddModule("Toggl", reflect.TypeOf(modules.Toggl{}))
-}
-
 func main() {
 	var logPath, configPath string
 	flag.StringVar(&logPath, "log", "/dev/null", "Log path. Default: /dev/null")
 	flag.StringVar(&logPath, "l", "/dev/null", "Log file to use. Default: /dev/null")
-	flag.StringVar(&configPath, "config", "", "Configuration path.")
-	flag.StringVar(&configPath, "c", "", "Configuration path (in JSON).")
+	flag.StringVar(&configPath, "config", "", "Config path.")
+	flag.StringVar(&configPath, "c", "", "Config path (in JSON).")
 
 	flag.Parse()
 
 	logfile, err := os.OpenFile(logPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
-	checkErr(err, "Log file not opened")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to open log file: %q", err)
+		os.Exit(2)
+	}
 	defer logfile.Close()
-	logger := log.New(logfile, "gobar:", log.Lshortfile|log.LstdFlags)
 
-	logger.Println("Start")
-	initModules()
-	logger.Printf("Loading configuration from: %s", configPath)
-	config, err := loadConfig(configPath)
-	checkErr(err, "Config file not opened")
-	logger.Printf("bar items: %+v", config.Blocks)
-
-	bar := config.CreateBar(logger)
-	bar.Start()
-	logger.Println("End")
-	os.Exit(0)
-	defer func () {
+	log := xlog.New(xlog.Config{
+		Output: xlog.NewLogfmtOutput(logfile),
+	})
+	defer func() {
 		if r := recover(); r != nil {
-			logger.Printf("Unhandled panic: %v", r)
+			log.Errorf("Unhandled panic: %v", r)
 		}
 	}()
+	log.Info("Start")
+	log.Infof("Loading configuration from: %s", configPath)
+	config, err := loadConfig(configPath)
+	if err != nil {
+		log.Fatal("Unable to load config", err)
+	}
+	log.Infof("bar items: %+v", config.Blocks)
+
+	bar := config.CreateBar(log)
+	bar.Start()
+	log.Info("End")
+	os.Exit(0)
+
 }

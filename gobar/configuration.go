@@ -1,33 +1,34 @@
 package gobar
 
 import (
-	"log"
 	"reflect"
+
+	"github.com/Ak-Army/xlog"
 )
 
-type Configuration struct {
+type Config struct {
 	Defaults *BlockInfo `json:"defaults,omitempty"`
 	Blocks   []Block    `json:"blocks"`
 }
 
 var defaults reflect.Value
 
-func (config *Configuration) CreateBar(logger *log.Logger) *Bar {
-	//fmt.Printf("%+v\n\n", reflect.TypeOf(config.Defaults).Elem().Field(0))
+func (config *Config) CreateBar(log xlog.Logger) *Bar {
+	// fmt.Printf("%+v\n\n", reflect.TypeOf(config.Defaults).Elem().Field(0))
 	updateChannel := make(chan UpdateChannelMsg)
 	defaults = reflect.ValueOf(config.Defaults).Elem()
 	for i := range config.Blocks {
 		mapDefaults(&config.Blocks[i].Info)
-		err := config.Blocks[i].CreateModule(i, logger)
+		err := config.Blocks[i].CreateModule(i, log)
 		if err == nil {
 			go config.Blocks[i].Start(i, updateChannel)
 		} else {
-			logger.Printf("Error: %q\n", err)
+			log.Error(err)
 		}
 	}
 	return &Bar{
 		blocks:        config.Blocks,
-		logger:        logger,
+		log:           log,
 		updateChannel: updateChannel,
 	}
 }

@@ -52,7 +52,7 @@ func (c Client) request(method string, endpoint string, param interface{}) (resp
 	contentType := res.Header.Get("content-type")
 	if !(res.StatusCode >= 200 && res.StatusCode < 300) {
 		err = errors.New("response wrong status code")
-	} else if strings.Contains(contentType,"application/json") {
+	} else if strings.Contains(contentType, "application/json") {
 		response, err = ioutil.ReadAll(res.Body)
 	} else {
 		err = errors.New("response wrong content type")

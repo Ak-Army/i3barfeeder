@@ -14,7 +14,7 @@ import (
 func init() {
 	gobar.AddModule("DateTime", func() gobar.ModuleInterface {
 		return &DateTime{
-			Format: "2006-01-02 15:04:05",
+			Format:      "2006-01-02 15:04:05",
 			ShortFormat: "02 15:04:05",
 		}
 	})

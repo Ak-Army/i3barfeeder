@@ -13,10 +13,11 @@ func init() {
 	gobar.AddModule("Battery", func() gobar.ModuleInterface {
 		return &Battery{
 			InterfaceName: "BAT1",
-			barConfig: defaultBarConfig(),
+			barConfig:     defaultBarConfig(),
 		}
 	})
 }
+
 type Battery struct {
 	gobar.ModuleInterface
 	InterfaceName string `json:"interfaceName"`

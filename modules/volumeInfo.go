@@ -15,8 +15,7 @@ import (
 func init() {
 	gobar.AddModule("VolumeInfo", func() gobar.ModuleInterface {
 		return &VolumeInfo{
-			Mixer: "default",
-			Step: 1,
+			Step:      1,
 			barConfig: defaultBarConfig(),
 		}
 	})
@@ -24,11 +23,10 @@ func init() {
 
 type VolumeInfo struct {
 	gobar.ModuleInterface
-	Mixer     string `json:"mixer"`
-	SControl  string `json:"sControl"`
 	Step      int `json:"step"`
 	barConfig barConfig
 	regex     *regexp.Regexp
+	log       xlog.Logger
 }
 
 func (m *VolumeInfo) InitModule(config json.RawMessage, log xlog.Logger) error {
@@ -40,17 +38,8 @@ func (m *VolumeInfo) InitModule(config json.RawMessage, log xlog.Logger) error {
 			return err
 		}
 	}
-
-	if m.SControl == "" {
-		sControl, err := exec.Command("sh", "-c", "amixer -D "+m.Mixer+" scontrols").Output()
-		if err == nil {
-			regex, _ := regexp.Compile(`'(\w+)',0`)
-			m.SControl = regex.FindStringSubmatch(string(sControl))[1]
-		} else {
-			return fmt.Errorf("unable to find scontrol for mixer: %s, error: %s", m.Mixer, err)
-		}
-	}
-	regex, err := regexp.Compile(`(\d+) \[(\d+)%\].*\[(\w+)\]`)
+	m.log = log
+	regex, err := regexp.Compile(`(?m): (.*)\n.*front-left: \d+ \/[ ]+(\d+)% \/ [^ ]+ dB`)
 	if err != nil {
 		return fmt.Errorf("regex error: %s", err)
 	}
@@ -60,11 +49,16 @@ func (m *VolumeInfo) InitModule(config json.RawMessage, log xlog.Logger) error {
 }
 
 func (m VolumeInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
-	out, err := exec.Command("sh", "-c", "amixer -D "+m.Mixer+" get "+m.SControl).Output()
+	out, err := exec.Command("sh", "-c", "pactl list sinks").Output()
 	if err == nil {
 		currentVolume := m.volumeInfo(string(out))
-		info.ShortText = fmt.Sprintf("%d%s", int(currentVolume), "%")
-		info.FullText = makeBar(float64(currentVolume), m.barConfig)
+		info.ShortText = fmt.Sprintf("%f%s", currentVolume, "%")
+		m.log.Debug("currentVolume:", currentVolume)
+		if currentVolume >= 100 {
+			currentVolume -= 99
+			info.TextColor = "#FF2222"
+		}
+		info.FullText = makeBar(currentVolume, m.barConfig)
 	}
 
 	if err != nil {
@@ -80,18 +74,16 @@ func (m VolumeInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*g
 	var cmd string
 	switch cm.Button {
 	case 3: // right click, mute/unmute
-		cmd = fmt.Sprintf("amixer -D %s sset %s toggle", m.Mixer, m.SControl)
+		cmd = `pactl set-sink-mute 0 toggle`
 	case 4: // scroll up, increase
-		cmd = fmt.Sprintf("amixer -D %s sset %s %d%%+ unmute", m.Mixer, m.SControl, m.Step)
+		cmd = `pactl set-sink-mute 0 false; pactl set-sink-volume 0 +5%`
 	case 5: // scroll down, decrease
-		cmd = fmt.Sprintf("amixer -D %s sset %s %d%%- unmute", m.Mixer, m.SControl, m.Step)
+		cmd = `pactl set-sink-mute 0 false; pactl set-sink-volume 0 -5%`
 	}
 	if cmd != "" {
-		out, err := exec.Command("sh", "-c", cmd).Output()
+		_, err := exec.Command("sh", "-c", cmd).Output()
 		if err == nil {
-			currentVolume := m.volumeInfo(string(out))
-			info.ShortText = fmt.Sprintf("%d%s", int(currentVolume), "%")
-			info.FullText = makeBar(float64(currentVolume), m.barConfig)
+			m.UpdateInfo(info)
 		}
 	}
 	return &info, nil
@@ -99,13 +91,16 @@ func (m VolumeInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*g
 
 func (m VolumeInfo) volumeInfo(out string) float64 {
 	volumes := m.regex.FindStringSubmatch(out)
-	if len(volumes) == 0 || volumes[3] == "off" {
-		return float64(0)
-	} else {
-		currentVolume, err := strconv.ParseFloat(m.regex.FindStringSubmatch(string(out))[2], 64)
-		if err == nil {
-			return float64(currentVolume)
-		}
+	currentVolume := float64(0)
+
+	if len(volumes) == 0 || volumes[1] == "off" || volumes[1] == "igen" {
+		return currentVolume
+	}
+	var err error
+	m.log.Debug("currentVolume222222:", volumes[2])
+	currentVolume, err = strconv.ParseFloat(volumes[2], 64)
+	if err == nil {
+		return currentVolume
 	}
 	return float64(0)
 }

@@ -17,7 +17,7 @@ func init() {
 	gobar.AddModule("Network", func() gobar.ModuleInterface {
 		return &Network{
 			InterfaceName: "tun1",
-			barConfig: defaultBarConfig(),
+			barConfig:     defaultBarConfig(),
 		}
 	})
 }

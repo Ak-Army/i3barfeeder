@@ -29,29 +29,28 @@ func init() {
 type Toggl struct {
 	sync.Mutex
 	gobar.ModuleInterface
-	DefaultWID      int64        `json:"defaultWID"`
-	ApiToken        string       `json:"apiToken"`
-	TicketNames     []ticketName `json:"ticketNames"`
-	tickets         []ticket
+	DefaultWID       int64        `json:"defaultWID"`
+	ApiToken         string       `json:"apiToken"`
+	TicketNames      []ticketName `json:"ticketNames"`
+	tickets          []ticket
 	currentTimeEntry toggl.TimeEntry
-	updateTimeEntry toggl.TimeEntry
-	todayDuration   string
-	currentName     int
-	updateTimer     *time.Timer
-	log             xlog.Logger
-	projects        toggl.Projects
-	togglClient     toggl.Client
+	updateTimeEntry  toggl.TimeEntry
+	todayDuration    string
+	currentName      int
+	updateTimer      *time.Timer
+	log              xlog.Logger
+	projects         toggl.Projects
+	togglClient      toggl.Client
 }
 
 type ticketName struct {
-	Name     string     `json:"name"`
-	Projects [][]string `json:"projects"`
-	YTId     string     `json:"ytId"`
+	Name    string `json:"name"`
+	TPId    string `json:"tpId"`
+	Project string `json:"project"`
 }
 type ticket struct {
 	name string
-	PID int64
-	TID int64
+	PID  int64
 }
 type dayEntry struct {
 	Duration int64
@@ -167,16 +166,17 @@ func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar
 		if m.currentTimeEntry.ID != 0 {
 			m.togglClient.StopTimeEntry(m.currentTimeEntry)
 			m.currentTimeEntry = toggl.TimeEntry{}
+			m.currentName = 0
 		} else {
 			if m.DefaultWID != 0 {
 				var newTimeEntry = toggl.TimeEntry{
 					Description: m.tickets[0].name,
-					PID: m.tickets[0].PID,
-					TID: m.tickets[0].TID,
 					WID:         m.DefaultWID,
 					CreatedWith: "hunyi",
 				}
-				m.currentTimeEntry, _ = m.togglClient.StartTimeEntry(newTimeEntry)
+				var err error
+				m.currentTimeEntry, err = m.togglClient.StartTimeEntry(newTimeEntry)
+				m.log.Info(err)
 			}
 		}
 	case 4: // scroll up, increase
@@ -186,7 +186,6 @@ func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar
 		}
 		m.currentTimeEntry.Description = m.tickets[m.currentName].name
 		m.currentTimeEntry.PID = m.tickets[m.currentName].PID
-		m.currentTimeEntry.TID = m.tickets[m.currentName].TID
 		m.updateTimeEntry = m.currentTimeEntry
 		m.updateTimer.Reset(time.Second * 1)
 	case 5: // scroll down, decrease
@@ -196,7 +195,6 @@ func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar
 		}
 		m.currentTimeEntry.Description = m.tickets[m.currentName].name
 		m.currentTimeEntry.PID = m.tickets[m.currentName].PID
-		m.currentTimeEntry.TID = m.tickets[m.currentName].TID
 		m.updateTimeEntry = m.currentTimeEntry
 		m.updateTimer.Reset(time.Second * 1)
 	}
@@ -228,7 +226,7 @@ func (m *Toggl) getCurrentTimeEntry() {
 		return
 	}
 	if len(m.currentTimeEntry.Description) > 50 {
-		m.currentTimeEntry.Description = m.currentTimeEntry.Description[0:50]+"..."
+		m.currentTimeEntry.Description = m.currentTimeEntry.Description[0:50] + "..."
 	}
 	proj := m.projects.FindById(m.currentTimeEntry.PID)
 	if proj == nil {
@@ -236,9 +234,10 @@ func (m *Toggl) getCurrentTimeEntry() {
 	}
 	task := proj.Tasks.FindById(m.currentTimeEntry.TID)
 	if task == nil {
+		m.currentTimeEntry.Description += fmt.Sprintf(" - %s", proj.Name)
 		return
 	}
-	m.currentTimeEntry.Description+= fmt.Sprintf(" - %s / %s", proj.Name, task.Name)
+	m.currentTimeEntry.Description += fmt.Sprintf(" - %s / %s", proj.Name, task.Name)
 
 }
 
@@ -251,35 +250,29 @@ func (m *Toggl) updateCurrentTimeEntry() {
 func (m *Toggl) updateProjectsAndTasks() {
 	var err error
 	m.projects, err = m.togglClient.GetWorkspaceProjects(m.DefaultWID)
-	if err !=  nil {
+	if err != nil {
 		m.log.Error("Unable to get workspace projects")
-		return
 	}
 	for _, p := range m.projects {
 		p.Tasks, err = m.togglClient.GetProjectTasks(p.ID)
-		if err !=  nil {
+		if err != nil {
 			m.log.Errorf("Unable to get project tasks: %d %s", p.ID, p.Name)
 		}
 	}
 	var tickets []ticket
-	for _, t := range m.TicketNames {
-		for _, p := range t.Projects {
-			proj := m.projects.FindByName(p[0])
-			if proj == nil {
-				m.log.Errorf("Project not found: %s (%s)", p[0], t.Name)
-				continue
-			}
-			task := proj.Tasks.FindByName(p[1])
-			if task == nil {
-				m.log.Errorf("Task not found in %s project: %s (%s)", proj.Name, p[1], t.Name)
-				continue
-			}
-			tickets = append(tickets, ticket{
-				name: fmt.Sprintf("%s %s %s - %s / %s ", t.YTId, p[2], t.Name, proj.Name, task.Name),
-				PID: proj.ID,
-				TID: task.ID,
-			})
+	for _, ticketName := range m.TicketNames {
+		t := ticket{
+			name: fmt.Sprintf("%s %s", ticketName.TPId, ticketName.Name),
 		}
+		if ticketName.Project != "" {
+			proj := m.projects.FindByName(ticketName.Project)
+			if proj == nil {
+				m.log.Errorf("Project not found: %s", ticketName.Project)
+				continue
+			}
+			t.PID = proj.ID
+		}
+		tickets = append(tickets, t)
 	}
 	if len(tickets) > 0 {
 		m.Lock()

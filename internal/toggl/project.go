@@ -14,22 +14,22 @@ type Project struct {
 	Color         string `json:"color"`
 	CreatedAt     string `json:"created_at"`
 	HexColor      string `json:"hex_color"`
-	ID            int64    `json:"id"`
+	ID            int64  `json:"id"`
 	IsPrivate     bool   `json:"is_private"`
 	Name          string `json:"name"`
 	Template      bool   `json:"template"`
-	WID           int64    `json:"wid"`
+	WID           int64  `json:"wid"`
 	Tasks         Tasks
 }
 
 type Task struct {
-	Name             string    `json:"name"`
-	ID               int64       `json:"id"`
-	WID              int64       `json:"wid"`
-	PID              int64       `json:"pid"`
-	Active           bool      `json:"active"`
-	At               string  `json:"at"`
-	EstimatedSeconds int       `json:"estimated_seconds"`
+	Name             string `json:"name"`
+	ID               int64  `json:"id"`
+	WID              int64  `json:"wid"`
+	PID              int64  `json:"pid"`
+	Active           bool   `json:"active"`
+	At               string `json:"at"`
+	EstimatedSeconds int    `json:"estimated_seconds"`
 }
 
 type Projects []*Project
@@ -73,7 +73,7 @@ func (t Tasks) FindByName(name string) *Task {
 
 func (c *Client) GetWorkspaceProjects(wid int64) (Projects, error) {
 	var projects Projects
-	res, err := c.request("GET", fmt.Sprintf("/workspaces/%d/projects",wid), nil)
+	res, err := c.request("GET", fmt.Sprintf("/workspaces/%d/projects", wid), nil)
 	if err != nil {
 		return projects, err
 	}

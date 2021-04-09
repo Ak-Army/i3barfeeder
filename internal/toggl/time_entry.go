@@ -140,4 +140,3 @@ func (timeEntry TimeEntry) DurationInSec() float64 {
 	}
 	return timeDur.Seconds()
 }
-

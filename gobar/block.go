@@ -30,10 +30,10 @@ type BlockInfo struct {
 
 // Block i3  item
 type Block struct {
-	ModuleName string       `json:"module"`
-	Label      string       `json:"label"`
-	Interval   int64        `json:"interval"`
-	Info       BlockInfo    `json:"info,omitempty"`
+	ModuleName string          `json:"module"`
+	Label      string          `json:"label"`
+	Interval   int64           `json:"interval"`
+	Info       BlockInfo       `json:"info,omitempty"`
 	Config     json.RawMessage `json:"config,omitempty"`
 	module     ModuleInterface
 	lastUpdate int64

@@ -12,7 +12,7 @@ import (
 func init() {
 	gobar.AddModule("Battery", func() gobar.ModuleInterface {
 		return &Battery{
-			InterfaceName: "BAT1",
+			InterfaceName: "BAT0",
 			barConfig:     defaultBarConfig(),
 		}
 	})

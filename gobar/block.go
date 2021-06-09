@@ -57,7 +57,7 @@ func (block *Block) CreateModule(id int, log xlog.Logger) error {
 		err = fmt.Errorf("module not found: `%s`", block.ModuleName)
 	}
 	if err != nil {
-		block.Label = "ERR: "
+		block.Label = "ERR: " + err.Error()
 		block.Info = BlockInfo{
 			TextColor: "#FF0000",
 			FullText:  err.Error(),

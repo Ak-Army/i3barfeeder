@@ -1,34 +1,17 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
 	_ "github.com/Ak-Army/i3barfeeder/modules"
 
 	"github.com/Ak-Army/xlog"
 )
-
-func loadConfig(path string) (barConfig gobar.Config, err error) {
-	barConfig = gobar.Config{}
-	text, err := ioutil.ReadFile(path)
-	if err != nil {
-		return
-	}
-	err = json.Unmarshal(text, &barConfig)
-	return
-}
-
-func checkErr(err error, msg string) {
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s:%q", msg, err)
-		os.Exit(2)
-	}
-}
 
 func main() {
 	var logPath, configPath string
@@ -49,6 +32,7 @@ func main() {
 	log := xlog.New(xlog.Config{
 		Output: xlog.NewLogfmtOutput(logfile),
 	})
+	xlog.SetLogger(log)
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("Unhandled panic: %v", r)
@@ -56,15 +40,26 @@ func main() {
 	}()
 	log.Info("Start")
 	log.Infof("Loading configuration from: %s", configPath)
-	config, err := loadConfig(configPath)
+	bar, err := gobar.New(configPath)
 	if err != nil {
 		log.Fatal("Unable to load config", err)
 	}
-	log.Infof("bar items: %+v", config.Blocks)
-
-	bar := config.CreateBar(log)
 	bar.Start()
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGCONT)
+	for {
+		sig := <-sigs
+		log.Debugf("Received signal: %q", sig)
+		switch sig {
+		/*case syscall.SIGTERM:
+			bar.Stop()
+		case syscall.SIGCONT:
+			bar.Stop()
+			bar.ReStart()*/
+		case syscall.SIGINT:
+			return
+		}
+	}
 	log.Info("End")
 	os.Exit(0)
-
 }

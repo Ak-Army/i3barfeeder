@@ -4,22 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/Ak-Army/i3barfeeder/gobar"
-	"github.com/Ak-Army/xlog"
-	"google.golang.org/api/option"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Ak-Army/xlog"
+	"google.golang.org/api/option"
+
+	"github.com/Ak-Army/i3barfeeder/gobar"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
 )
+
+var zoomRegex *regexp.Regexp
 
 func init() {
 	gobar.AddModule("GCal", func() gobar.ModuleInterface {
@@ -28,12 +33,14 @@ func init() {
 			TokenFile:  "token.json",
 		}
 	})
+	zoomRegex = regexp.MustCompile(`https:\/\/([^.]+.)?zoom\.us\/[^\\" \n]+`)
 }
 
 type GCal struct {
 	gobar.ModuleInterface
 	SecretFile    string `json:"secretFile"`
 	TokenFile     string `json:"tokenFile"`
+	Email         string `json:"email"`
 	log           xlog.Logger
 	googleService *calendar.Service
 	lastQuery     time.Time
@@ -96,7 +103,8 @@ func (m *GCal) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	if m.currentEvent == nil {
 		info.ShortText = "No events"
 		info.FullText = "No upcoming events found."
-		m.showCurrentEvent(&info)
+		event := m.getCurrentEvent()
+		m.showEvent(event, &info)
 	} else {
 		m.showEvent(m.currentEvent, &info)
 	}
@@ -106,44 +114,42 @@ func (m *GCal) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	switch cm.Button {
 	case 2: // middle button
-		m.showCurrentEvent(&info)
+		m.eventLock.Lock()
+		m.currentEvent = nil
+		m.eventLock.Unlock()
+		event := m.getCurrentEvent()
+		m.showEvent(event, &info)
+
 		return &info, nil
 	case 3: // right click, join zoom
 		m.eventLock.Lock()
 		event := m.currentEvent
 		m.eventLock.Unlock()
-		if event.ConferenceData != nil &&
-			len(event.ConferenceData.EntryPoints) > 0 {
-			for _, e := range event.ConferenceData.EntryPoints {
-				if strings.Contains(e.Uri, "zoom.us/") {
-					m.openURL(event.Location)
-					return &info, nil
-				}
-			}
+		if event == nil {
+			event = m.getCurrentEvent()
 		}
-		if strings.Contains(event.Location, "zoom.us/") {
-			m.openURL(event.Location)
-			return &info, nil
-		}
-		if event.Location == "https://rebrand.ly/sl3_zoom" {
-			m.openURL(event.Location)
-			return &info, nil
-		}
-		lines := strings.Split(event.Description, "\n")
-		for i, line := range lines {
-			if line == "Join Zoom Meeting" {
-				m.openURL(lines[i+1])
-				return &info, nil
-			}
+		zoomLink := m.findVideoLink(event)
+		if zoomLink != "" {
+			m.openURL(zoomLink)
+		} else {
+			s, _ := json.Marshal(event)
+			m.log.Warnf("unable to find zoom link: %s", string(s))
+			m.log.Warnf("unable to find zoom link: %s", event.Description)
 		}
 	case 4: // scroll up, decrease
 		m.eventLock.Lock()
 		event := m.currentEvent
 		m.eventLock.Unlock()
+		if event == nil {
+			event = m.getCurrentEvent()
+		}
 		l := len(m.events.Items) - 1
 		for i, item := range m.events.Items {
 			if item.Id == event.Id && i < l {
 				m.showEvent(m.events.Items[i+1], &info)
+				m.eventLock.Lock()
+				m.currentEvent = m.events.Items[i+1]
+				m.eventLock.Unlock()
 				return &info, nil
 			}
 		}
@@ -154,6 +160,9 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 		for i, item := range m.events.Items {
 			if item.Id == event.Id && i > 0 {
 				m.showEvent(m.events.Items[i-1], &info)
+				m.eventLock.Lock()
+				m.currentEvent = m.events.Items[i-1]
+				m.eventLock.Unlock()
 				return &info, nil
 			}
 		}
@@ -161,16 +170,62 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 	return nil, nil
 }
 
-func (m *GCal) showCurrentEvent(info *gobar.BlockInfo) {
+func (m *GCal) findVideoLink(event *calendar.Event) string {
+	if event.ConferenceData != nil &&
+		len(event.ConferenceData.EntryPoints) > 0 {
+		for _, e := range event.ConferenceData.EntryPoints {
+			if strings.Contains(e.Uri, "https://zoom.us") ||
+				strings.Contains(e.Uri, "https://meet.google.com") {
+				return e.Uri
+			}
+		}
+	}
+	if strings.Contains(event.Location, "zoom.us/") {
+		url := zoomRegex.FindString(event.Location)
+		if url != "" {
+			return url
+		}
+	}
+	if event.Location == "https://rebrand.ly/sl3_zoom" {
+		return event.Location
+	}
+	if strings.Contains(event.Description, "https://rebrand.ly/sl3_zoom") {
+		return "https://rebrand.ly/sl3_zoom"
+	}
+	if strings.Contains(event.Description, "Join Zoom Meeting") {
+		url := zoomRegex.FindString(event.Description)
+		if url != "" {
+			return url
+		}
+	}
+	lines := strings.Split(event.Description, "\n")
+	for i, line := range lines {
+		if line == "Join Zoom Meeting" {
+			url := zoomRegex.FindString(lines[i+1])
+			if url != "" {
+				return url
+			}
+		}
+	}
+	return ""
+}
+
+func (m *GCal) getCurrentEvent() *calendar.Event {
 	t := time.Now().Add(10 * time.Minute)
+	var maybeFound *calendar.Event
 	for _, item := range m.events.Items {
 		endDateTime, err := time.Parse(time.RFC3339, item.End.DateTime)
 		if err != nil {
 			continue
 		}
 		if t.Before(endDateTime) {
-			m.showEvent(item, info)
-			return
+			if m.isDeclined(item) {
+				maybeFound = item
+				continue
+			}
+			return item
+		} else if maybeFound != nil {
+			return maybeFound
 		}
 	}
 	for _, item := range m.events.Items {
@@ -179,19 +234,19 @@ func (m *GCal) showCurrentEvent(info *gobar.BlockInfo) {
 			continue
 		}
 		if t.Before(endDateTime) {
-			m.showEvent(item, info)
-			return
+			if m.isDeclined(item) {
+				maybeFound = item
+				continue
+			}
+			return item
+		} else if maybeFound != nil {
+			return maybeFound
 		}
 	}
-	return
+	return nil
 }
 
 func (m *GCal) showEvent(event *calendar.Event, info *gobar.BlockInfo) {
-	m.eventLock.Lock()
-	m.currentEvent = event
-	b, _ := json.Marshal(event)
-	m.log.Infof("%s", b)
-	m.eventLock.Unlock()
 	startDateTime, err := time.Parse(time.RFC3339, event.Start.DateTime)
 	if err != nil {
 		return
@@ -210,7 +265,22 @@ func (m *GCal) showEvent(event *calendar.Event, info *gobar.BlockInfo) {
 	}
 	info.ShortText = fmt.Sprintf("%s (%s)", event.Summary, startDateTime.Format("15:04"))
 	info.FullText = fmt.Sprintf("%s (%s-%s)", event.Summary, startDateTime.Format("15:04"), endDateTime.Format("15:04"))
+	if m.isDeclined(event) {
+		info.ShortText += " [D]"
+		info.FullText += " [DECLINED]"
+	}
 	return
+}
+
+func (m *GCal) isDeclined(event *calendar.Event) bool {
+	for _, a := range event.Attendees {
+		if a.Email == m.Email {
+			if a.ResponseStatus == "declined" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Retrieve a token, saves the token, then returns the generated client.
@@ -223,7 +293,6 @@ func (m *GCal) getClient(config *oauth2.Config) *http.Client {
 		tok = m.getTokenFromWeb(config)
 		m.saveToken(tok)
 	}
-	m.log.Debugf("credentials: %+v", tok)
 	return config.Client(context.Background(), tok)
 }
 

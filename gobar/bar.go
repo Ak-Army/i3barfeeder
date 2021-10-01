@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/Ak-Army/xlog"
@@ -40,7 +38,7 @@ func (cm *ClickMessage) isMatch(block Block) bool {
 	return block.Info.Name == cm.Name && block.Info.Instance == cm.Instance
 }
 
-func (bar *Bar) Start() {
+func (b *Bar) Start() {
 	header := header{
 		Version:     1,
 		ClickEvents: true,
@@ -50,33 +48,30 @@ func (bar *Bar) Start() {
 	headerJSON, _ := json.Marshal(header)
 	fmt.Println(string(headerJSON))
 	fmt.Println("[[]")
-	bar.stop = make(chan bool, 3)
-	bar.ReStart()
-	bar.sigHandler()
+	b.ReStart()
 }
 
-func (bar *Bar) ReStart() {
-	bar.stop = make(chan bool, 3)
-	go bar.update()
-	go bar.printItems()
-	go bar.handleClick()
+func (b *Bar) ReStart() {
+	b.stop = make(chan bool)
+	go b.update()
+	go b.printItems()
+	go b.handleClick()
+	<-b.stop
 }
 
-func (bar *Bar) Stop() {
-	bar.stop <- true
-	bar.stop <- true
-	bar.stop <- true
+func (b *Bar) Stop() {
+	close(b.stop)
 }
 
-func (bar *Bar) Print() (minInterval int64) {
+func (b *Bar) Print() (minInterval int64) {
 	var infoArray []string
-	for _, item := range bar.blocks {
+	for _, item := range b.blocks {
 		item.Info.FullText = item.Label + " " + item.Info.FullText
 		item.Info.ShortText = item.Label + " " + item.Info.ShortText
 
 		info, err := json.Marshal(item.Info)
 		if err != nil {
-			bar.log.Error("ERROR: %q", err)
+			b.log.Error("ERROR: %q", err)
 		} else {
 			infoArray = append(infoArray, string(info))
 		}
@@ -89,41 +84,23 @@ func (bar *Bar) Print() (minInterval int64) {
 	return minInterval
 }
 
-func (bar *Bar) sigHandler() {
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGCONT)
+func (b *Bar) update() {
 	for {
-		sig := <-sigs
-		bar.log.Debugf("Received signal: %q", sig)
-		switch sig {
-		/*case syscall.SIGTERM:
-			bar.Stop()
-		case syscall.SIGCONT:
-			bar.Stop()
-			bar.ReStart()*/
-		case syscall.SIGINT:
+		select {
+		case <-b.stop:
+			b.log.Debug("Stop update")
 			return
+		case m := <-b.updateChannel:
+			b.blocks[m.ID].Info = m.Info
 		}
 	}
 }
 
-func (bar *Bar) update() {
+func (b *Bar) handleClick() {
 	for {
 		select {
-		case <-bar.stop:
-			bar.log.Debug("Stop update")
-			return
-		case m := <-bar.updateChannel:
-			bar.blocks[m.ID].Info = m.Info
-		}
-	}
-}
-
-func (bar *Bar) handleClick() {
-	for {
-		select {
-		case <-bar.stop:
-			bar.log.Debug("Stop handleClick")
+		case <-b.stop:
+			b.log.Debug("Stop handleClick")
 			return
 		default:
 			bio := bufio.NewReader(os.Stdin)
@@ -143,17 +120,17 @@ func (bar *Bar) handleClick() {
 
 			err = json.Unmarshal(line, &clickMessage)
 			if err == nil {
-				bar.log.Debugf("Click: line: %s, cm:%+v", string(line), clickMessage)
-				for i, block := range bar.blocks {
+				b.log.Debugf("Click: line: %s, cm:%+v", string(line), clickMessage)
+				for i, block := range b.blocks {
 					if clickMessage.isMatch(block) {
-						bar.log.Debug("Click: handled")
+						b.log.Debug("Click: handled")
 						info, err := block.HandleClick(clickMessage)
 						if err != nil {
-							bar.log.Debug("Click: error: ", err.Error())
+							b.log.Debug("Click: error: ", err.Error())
 						}
 						if info != nil {
-							bar.blocks[i].Info = *info
-							bar.Print()
+							b.blocks[i].Info = *info
+							b.Print()
 						}
 					}
 				}
@@ -162,14 +139,14 @@ func (bar *Bar) handleClick() {
 	}
 }
 
-func (bar *Bar) printItems() {
+func (b *Bar) printItems() {
 	for {
 		select {
-		case <-bar.stop:
-			bar.log.Debug("Stop printItems")
+		case <-b.stop:
+			b.log.Debug("Stop printItems")
 			return
 		default:
-			minInterval := bar.Print()
+			minInterval := b.Print()
 			if minInterval == 0 {
 				break
 			}

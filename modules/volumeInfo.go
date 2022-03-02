@@ -26,7 +26,9 @@ type VolumeInfo struct {
 	Step      int `json:"step"`
 	barConfig barConfig
 	regex     *regexp.Regexp
+	regexCard *regexp.Regexp
 	log       xlog.Logger
+	card      string
 }
 
 func (m *VolumeInfo) InitModule(config json.RawMessage, log xlog.Logger) error {
@@ -39,16 +41,23 @@ func (m *VolumeInfo) InitModule(config json.RawMessage, log xlog.Logger) error {
 		}
 	}
 	m.log = log
-	regex, err := regexp.Compile(`(?m): (.*)\n.*front-left: \d+ \/[ ]+(\d+)% \/ [^ ]+ dB`)
+	regex, err := regexp.Compile(`(?m): (.*)\n.*front-left: \d+ /[ ]+(\d+)% / [^ ]+ dB`)
+
+	if err != nil {
+		return fmt.Errorf("regex error: %s", err)
+	}
+	regexCard, err := regexp.Compile(`\.card = "(\d+)"`)
 	if err != nil {
 		return fmt.Errorf("regex error: %s", err)
 	}
 	m.regex = regex
+	m.regexCard = regexCard
+	m.card = "0"
 
 	return nil
 }
 
-func (m VolumeInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
+func (m *VolumeInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	out, err := exec.Command("sh", "-c", "pactl list sinks").Output()
 	if err == nil {
 		currentVolume := m.volumeInfo(string(out))
@@ -70,16 +79,17 @@ func (m VolumeInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 }
 
 // {"name":"VolumeInfo","instance":"id_1","button":5,"x":2991,"y":12}
-func (m VolumeInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
+func (m *VolumeInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	var cmd string
 	switch cm.Button {
 	case 3: // right click, mute/unmute
-		cmd = `pactl set-sink-mute 0 toggle`
+		cmd = `pactl set-sink-mute ` + m.card + ` toggle`
 	case 4: // scroll up, increase
-		cmd = `pactl set-sink-mute 0 false; pactl set-sink-volume 0 +5%`
+		cmd = `pactl set-sink-mute ` + m.card + ` false; pactl set-sink-volume ` + m.card + ` +5%`
 	case 5: // scroll down, decrease
-		cmd = `pactl set-sink-mute 0 false; pactl set-sink-volume 0 -5%`
+		cmd = `pactl set-sink-mute ` + m.card + ` false; pactl set-sink-volume ` + m.card + ` -5%`
 	}
+	m.log.Info(cmd)
 	if cmd != "" {
 		_, err := exec.Command("sh", "-c", cmd).Output()
 		if err == nil {
@@ -89,9 +99,15 @@ func (m VolumeInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*g
 	return &info, nil
 }
 
-func (m VolumeInfo) volumeInfo(out string) float64 {
+func (m *VolumeInfo) volumeInfo(out string) float64 {
 	volumes := m.regex.FindStringSubmatch(out)
+	card := m.regexCard.FindStringSubmatch(out)
 	currentVolume := float64(0)
+
+	if len(card) == 2 {
+		m.card = card[1]
+	}
+	m.log.Debug("card:", card)
 
 	if len(volumes) == 0 || volumes[1] == "off" || volumes[1] == "igen" {
 		return currentVolume

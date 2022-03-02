@@ -19,7 +19,7 @@ type Client struct {
 
 func NewClient(apiToken string) Client {
 	transport := &http.Transport{}
-	baseUrl := "https://toggl.com/api/v8"
+	baseUrl := "https://api.track.toggl.com/api/v8"
 
 	return Client{
 		client:    &http.Client{Transport: transport},

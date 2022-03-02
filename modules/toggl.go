@@ -251,7 +251,7 @@ func (m *Toggl) updateProjectsAndTasks() {
 	var err error
 	m.projects, err = m.togglClient.GetWorkspaceProjects(m.DefaultWID)
 	if err != nil {
-		m.log.Error("Unable to get workspace projects")
+		m.log.Error("Unable to get workspace projects", err)
 	}
 	for _, p := range m.projects {
 		p.Tasks, err = m.togglClient.GetProjectTasks(p.ID)

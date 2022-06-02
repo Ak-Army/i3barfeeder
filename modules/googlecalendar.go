@@ -15,16 +15,13 @@ import (
 	"time"
 
 	"github.com/Ak-Army/xlog"
-	"google.golang.org/api/option"
-
-	"github.com/Ak-Army/i3barfeeder/gobar"
-
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
-)
+	"google.golang.org/api/option"
 
-var zoomRegex *regexp.Regexp
+	"github.com/Ak-Army/i3barfeeder/gobar"
+)
 
 func init() {
 	gobar.AddModule("GCal", func() gobar.ModuleInterface {
@@ -33,14 +30,18 @@ func init() {
 			TokenFile:  "token.json",
 		}
 	})
-	zoomRegex = regexp.MustCompile(`https:\/\/([^.]+.)?zoom\.us\/[^\\" \n]+`)
 }
 
 type GCal struct {
 	gobar.ModuleInterface
-	SecretFile    string `json:"secretFile"`
-	TokenFile     string `json:"tokenFile"`
-	Email         string `json:"email"`
+	SecretFile  string `json:"secretFile"`
+	TokenFile   string `json:"tokenFile"`
+	Email       string `json:"email"`
+	MeetingLink map[string]*struct {
+		Regex  string `json:"regex"`
+		Simple string `json:"simple"`
+		regex  *regexp.Regexp
+	} `json:"meetingLink"`
 	log           xlog.Logger
 	googleService *calendar.Service
 	lastQuery     time.Time
@@ -55,6 +56,17 @@ func (m *GCal) InitModule(config json.RawMessage, log xlog.Logger) error {
 	if config != nil {
 		if err := json.Unmarshal(config, m); err != nil {
 			return err
+		}
+	}
+	for s, l := range m.MeetingLink {
+		if l.Regex != "" {
+			r, err := regexp.Compile(l.Regex)
+			if err != nil {
+				delete(m.MeetingLink, s)
+				m.log.Warnf("Wrong regex for link: %s", s, err)
+				continue
+			}
+			m.MeetingLink[s].regex = r
 		}
 	}
 	ctx := context.Background()
@@ -112,6 +124,9 @@ func (m *GCal) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 }
 
 func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
+	defer func() {
+
+	}()
 	switch cm.Button {
 	case 2: // middle button
 		m.eventLock.Lock()
@@ -161,7 +176,7 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 			if item.Id == event.Id && i > 0 {
 				m.showEvent(m.events.Items[i-1], &info)
 				m.eventLock.Lock()
-				m.currentEvent = m.events.Items[i-1]
+				//m.currentEvent = m.events.Items[i-1]
 				m.eventLock.Unlock()
 				return &info, nil
 			}
@@ -171,39 +186,51 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 }
 
 func (m *GCal) findVideoLink(event *calendar.Event) string {
-	if event.ConferenceData != nil &&
-		len(event.ConferenceData.EntryPoints) > 0 {
-		for _, e := range event.ConferenceData.EntryPoints {
-			if strings.Contains(e.Uri, "https://zoom.us") ||
-				strings.Contains(e.Uri, "https://meet.google.com") {
-				return e.Uri
+	for s, l := range m.MeetingLink {
+		if event.ConferenceData != nil &&
+			len(event.ConferenceData.EntryPoints) > 0 {
+			for _, e := range event.ConferenceData.EntryPoints {
+				if l.regex != nil {
+					url := l.regex.FindString(e.Uri)
+					if url != "" {
+						return url
+					}
+				}
+				if strings.Contains(e.Uri, s) {
+					return e.Uri
+				}
 			}
 		}
-	}
-	if strings.Contains(event.Location, "zoom.us/") {
-		url := zoomRegex.FindString(event.Location)
-		if url != "" {
-			return url
-		}
-	}
-	if event.Location == "https://rebrand.ly/sl3_zoom" {
-		return event.Location
-	}
-	if strings.Contains(event.Description, "https://rebrand.ly/sl3_zoom") {
-		return "https://rebrand.ly/sl3_zoom"
-	}
-	if strings.Contains(event.Description, "Join Zoom Meeting") {
-		url := zoomRegex.FindString(event.Description)
-		if url != "" {
-			return url
-		}
-	}
-	lines := strings.Split(event.Description, "\n")
-	for i, line := range lines {
-		if line == "Join Zoom Meeting" {
-			url := zoomRegex.FindString(lines[i+1])
+		if l.regex != nil {
+			url := l.regex.FindString(event.Location)
 			if url != "" {
 				return url
+			}
+		}
+		if event.Location == l.Simple && l.Simple != "" {
+			return event.Location
+		}
+		if strings.Contains(event.Description, l.Simple) {
+			if l.regex != nil {
+				url := l.regex.FindString(event.Description)
+				if url != "" {
+					return url
+				}
+			} else {
+				return l.Simple
+			}
+		}
+		lines := strings.Split(event.Description, "\n")
+		for i, line := range lines {
+			if line == l.Simple {
+				if l.regex != nil {
+					url := l.regex.FindString(lines[i+1])
+					if url != "" {
+						return url
+					}
+				} else {
+					return l.Simple
+				}
 			}
 		}
 	}

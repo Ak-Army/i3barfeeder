@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Ak-Army/timer"
 	"github.com/Ak-Army/xlog"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
@@ -37,7 +38,7 @@ type Toggl struct {
 	updateTimeEntry  toggl.TimeEntry
 	todayDuration    string
 	currentName      int
-	updateTimer      *time.Timer
+	updateTimer      timer.Timer
 	log              xlog.Logger
 	projects         toggl.Projects
 	togglClient      toggl.Client
@@ -66,9 +67,9 @@ func (m *Toggl) InitModule(config json.RawMessage, log xlog.Logger) error {
 	m.calcRemainingTime()
 	m.updateProjectsAndTasks()
 
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := timer.NewTicker("togglTicker", 10*time.Second)
 	go func() {
-		for t := range ticker.C {
+		for t := range ticker.C() {
 			if m.updateTimeEntry.ID == 0 {
 				m.getCurrentTimeEntry()
 			}
@@ -78,9 +79,15 @@ func (m *Toggl) InitModule(config json.RawMessage, log xlog.Logger) error {
 			}
 		}
 	}()
-	m.updateTimer = time.AfterFunc(time.Second, func() {
-		m.updateCurrentTimeEntry()
-	})
+	m.updateTimer = timer.NewTimer("togglUpdateTimer", time.Second)
+	go func() {
+		for {
+			select {
+			case <-m.updateTimer.C():
+				m.updateCurrentTimeEntry()
+			}
+		}
+	}()
 	return nil
 }
 
@@ -105,7 +112,7 @@ func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar
 	m.Lock()
 	defer m.Unlock()
 	m.currentTimeEntry, _ = m.togglClient.GetCurrentTimeEntry()
-	m.updateTimer.Stop()
+	m.updateTimer.SafeStop()
 	m.updateTimeEntry = toggl.TimeEntry{}
 	switch cm.Button {
 	case 2: // middle button
@@ -174,9 +181,7 @@ func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar
 					WID:         m.DefaultWID,
 					CreatedWith: "hunyi",
 				}
-				var err error
-				m.currentTimeEntry, err = m.togglClient.StartTimeEntry(newTimeEntry)
-				m.log.Info(err)
+				m.currentTimeEntry, _ = m.togglClient.StartTimeEntry(newTimeEntry)
 			}
 		}
 	case 4: // scroll up, increase
@@ -186,8 +191,8 @@ func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar
 		}
 		m.currentTimeEntry.Description = m.tickets[m.currentName].name
 		m.currentTimeEntry.PID = m.tickets[m.currentName].PID
+		m.updateTimer.SafeReset(time.Second * 1)
 		m.updateTimeEntry = m.currentTimeEntry
-		m.updateTimer.Reset(time.Second * 1)
 	case 5: // scroll down, decrease
 		m.currentName = m.currentName - 1
 		if m.currentName < 0 {
@@ -195,8 +200,8 @@ func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar
 		}
 		m.currentTimeEntry.Description = m.tickets[m.currentName].name
 		m.currentTimeEntry.PID = m.tickets[m.currentName].PID
+		m.updateTimer.SafeReset(time.Second * 1)
 		m.updateTimeEntry = m.currentTimeEntry
-		m.updateTimer.Reset(time.Second * 1)
 	}
 	info = m.UpdateInfo(info)
 	return &info, nil
@@ -221,10 +226,15 @@ func (m *Toggl) calcRemainingTime() {
 
 func (m *Toggl) getCurrentTimeEntry() {
 	var err error
-	if m.currentTimeEntry, err = m.togglClient.GetCurrentTimeEntry(); err != nil {
+	currentTimeEntry, err := m.togglClient.GetCurrentTimeEntry()
+	if err != nil {
 		m.log.Error("getCurrentTimeEntry", err)
 		return
 	}
+	if m.updateTimeEntry.ID != 0 {
+		return
+	}
+	m.currentTimeEntry = currentTimeEntry
 	if len(m.currentTimeEntry.Description) > 50 {
 		m.currentTimeEntry.Description = m.currentTimeEntry.Description[0:50] + "..."
 	}
@@ -242,9 +252,14 @@ func (m *Toggl) getCurrentTimeEntry() {
 }
 
 func (m *Toggl) updateCurrentTimeEntry() {
+	id := m.updateTimeEntry.ID
 	m.log.Info("Update", m.updateTimeEntry)
 	m.togglClient.UpdateTimeEntry(m.updateTimeEntry)
-	m.updateTimeEntry = toggl.TimeEntry{}
+	if id == m.updateTimeEntry.ID {
+		m.updateTimeEntry = toggl.TimeEntry{}
+	} else {
+		m.updateTimer.SafeReset(time.Second * 1)
+	}
 }
 
 func (m *Toggl) updateProjectsAndTasks() {

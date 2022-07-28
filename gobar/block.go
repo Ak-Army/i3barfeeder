@@ -3,6 +3,7 @@ package gobar
 import (
 	"encoding/json"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/Ak-Army/xlog"
@@ -71,6 +72,11 @@ func (block *Block) CreateModule(id int, log xlog.Logger) error {
 }
 
 func (block Block) Start(ID int, updateChannel chan<- UpdateChannelMsg) {
+	defer func() {
+		if r := recover(); r != nil {
+			xlog.Errorf("recovered: %s -> stackTrace: %s", r, debug.Stack())
+		}
+	}()
 	for {
 		newInfo := block.module.UpdateInfo(block.Info)
 		m := UpdateChannelMsg{

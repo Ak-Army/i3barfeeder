@@ -32,6 +32,13 @@ func init() {
 	})
 }
 
+type event struct {
+	*calendar.Event
+
+	videoLink string
+	clicked   bool
+}
+
 type GCal struct {
 	gobar.ModuleInterface
 	SecretFile  string `json:"secretFile"`
@@ -45,9 +52,9 @@ type GCal struct {
 	log           xlog.Logger
 	googleService *calendar.Service
 	lastQuery     time.Time
-	events        *calendar.Events
+	events        []*event
 	info          string
-	currentEvent  *calendar.Event
+	currentEvent  *event
 	eventLock     sync.Mutex
 }
 
@@ -103,13 +110,24 @@ func (m *GCal) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	if time.Since(m.lastQuery) > time.Hour/2 {
 		m.lastQuery = time.Now()
 		t := m.lastQuery.Truncate(time.Hour * 24)
-		events, err := m.googleService.Events.List("primary").ShowDeleted(false).
+		gevents, err := m.googleService.Events.List("primary").ShowDeleted(false).
 			SingleEvents(true).TimeMin(t.Format(time.RFC3339)).MaxResults(10).
 			OrderBy("startTime").Do()
 		if err != nil {
 			m.log.Errorf("Unable to retrieve next ten of the user's events: %v", err)
 		} else {
-			m.events = events
+			var evs []*event
+			for _, e := range gevents.Items {
+				ev := &event{Event: e}
+				for _, oe := range m.events {
+					if oe.Id == e.Id {
+						ev.clicked = oe.clicked
+					}
+				}
+				ev.videoLink = m.findVideoLink(ev)
+				evs = append(evs, ev)
+			}
+			m.events = evs
 		}
 	}
 	if m.currentEvent == nil {
@@ -132,49 +150,50 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 		m.eventLock.Lock()
 		m.currentEvent = nil
 		m.eventLock.Unlock()
-		event := m.getCurrentEvent()
-		m.showEvent(event, &info)
+		e := m.getCurrentEvent()
+		m.showEvent(e, &info)
 
 		return &info, nil
 	case 3: // right click, join zoom
 		m.eventLock.Lock()
-		event := m.currentEvent
+		e := m.currentEvent
 		m.eventLock.Unlock()
-		if event == nil {
-			event = m.getCurrentEvent()
+		if e == nil {
+			e = m.getCurrentEvent()
 		}
-		zoomLink := m.findVideoLink(event)
+		zoomLink := m.findVideoLink(e)
+		e.clicked = true
 		if zoomLink != "" {
 			m.openURL(zoomLink)
 		} else {
-			s, _ := json.Marshal(event)
+			s, _ := json.Marshal(e)
 			m.log.Warnf("unable to find zoom link: %s", string(s))
-			m.log.Warnf("unable to find zoom link: %s", event.Description)
+			m.log.Warnf("unable to find zoom link: %s", e.Description)
 		}
 	case 4: // scroll up, decrease
 		m.eventLock.Lock()
-		event := m.currentEvent
+		e := m.currentEvent
 		m.eventLock.Unlock()
-		if event == nil {
-			event = m.getCurrentEvent()
+		if e == nil {
+			e = m.getCurrentEvent()
 		}
-		l := len(m.events.Items) - 1
-		for i, item := range m.events.Items {
-			if item.Id == event.Id && i < l {
-				m.showEvent(m.events.Items[i+1], &info)
+		l := len(m.events) - 1
+		for i, item := range m.events {
+			if item.Id == e.Id && i < l {
+				m.showEvent(m.events[i+1], &info)
 				m.eventLock.Lock()
-				m.currentEvent = m.events.Items[i+1]
+				m.currentEvent = m.events[i+1]
 				m.eventLock.Unlock()
 				return &info, nil
 			}
 		}
 	case 5: // scroll down, decrease
 		m.eventLock.Lock()
-		event := m.currentEvent
+		e := m.currentEvent
 		m.eventLock.Unlock()
-		for i, item := range m.events.Items {
-			if item.Id == event.Id && i > 0 {
-				m.showEvent(m.events.Items[i-1], &info)
+		for i, item := range m.events {
+			if item.Id == e.Id && i > 0 {
+				m.showEvent(m.events[i-1], &info)
 				m.eventLock.Lock()
 				//m.currentEvent = m.events.Items[i-1]
 				m.eventLock.Unlock()
@@ -185,7 +204,10 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 	return nil, nil
 }
 
-func (m *GCal) findVideoLink(event *calendar.Event) string {
+func (m *GCal) findVideoLink(event *event) string {
+	if event.videoLink != "" {
+		return event.videoLink
+	}
 	for s, l := range m.MeetingLink {
 		if event.ConferenceData != nil &&
 			len(event.ConferenceData.EntryPoints) > 0 {
@@ -221,9 +243,10 @@ func (m *GCal) findVideoLink(event *calendar.Event) string {
 			}
 		}
 		lines := strings.Split(event.Description, "\n")
+		linesLen := len(lines)
 		for i, line := range lines {
 			if line == l.Simple {
-				if l.regex != nil {
+				if l.regex != nil && linesLen < i {
 					url := l.regex.FindString(lines[i+1])
 					if url != "" {
 						return url
@@ -237,10 +260,10 @@ func (m *GCal) findVideoLink(event *calendar.Event) string {
 	return ""
 }
 
-func (m *GCal) getCurrentEvent() *calendar.Event {
+func (m *GCal) getCurrentEvent() *event {
 	t := time.Now().Add(10 * time.Minute)
-	var maybeFound *calendar.Event
-	for _, item := range m.events.Items {
+	var maybeFound *event
+	for _, item := range m.events {
 		endDateTime, err := time.Parse(time.RFC3339, item.End.DateTime)
 		if err != nil {
 			continue
@@ -255,7 +278,7 @@ func (m *GCal) getCurrentEvent() *calendar.Event {
 			return maybeFound
 		}
 	}
-	for _, item := range m.events.Items {
+	for _, item := range m.events {
 		endDateTime, err := time.Parse(time.RFC3339, item.End.Date)
 		if err != nil {
 			continue
@@ -273,7 +296,7 @@ func (m *GCal) getCurrentEvent() *calendar.Event {
 	return nil
 }
 
-func (m *GCal) showEvent(event *calendar.Event, info *gobar.BlockInfo) {
+func (m *GCal) showEvent(event *event, info *gobar.BlockInfo) {
 	startDateTime, err := time.Parse(time.RFC3339, event.Start.DateTime)
 	if err != nil {
 		return
@@ -290,6 +313,14 @@ func (m *GCal) showEvent(event *calendar.Event, info *gobar.BlockInfo) {
 	if t.After(startDateTime) {
 		info.TextColor = "#30b856"
 	}
+	if !m.isDeclined(event) && !event.clicked && event.videoLink != "" {
+		sub := t.Sub(startDateTime)
+		if sub > -1*time.Minute && sub < time.Minute {
+			event.clicked = true
+			m.openURL(event.videoLink)
+		}
+	}
+
 	info.ShortText = fmt.Sprintf("%s (%s)", event.Summary, startDateTime.Format("15:04"))
 	info.FullText = fmt.Sprintf("%s (%s-%s)", event.Summary, startDateTime.Format("15:04"), endDateTime.Format("15:04"))
 	if m.isDeclined(event) {
@@ -299,7 +330,7 @@ func (m *GCal) showEvent(event *calendar.Event, info *gobar.BlockInfo) {
 	return
 }
 
-func (m *GCal) isDeclined(event *calendar.Event) bool {
+func (m *GCal) isDeclined(event *event) bool {
 	for _, a := range event.Attendees {
 		if a.Email == m.Email {
 			if a.ResponseStatus == "declined" {

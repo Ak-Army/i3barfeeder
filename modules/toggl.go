@@ -231,6 +231,8 @@ func (m *Toggl) getCurrentTimeEntry() {
 		m.log.Error("getCurrentTimeEntry", err)
 		return
 	}
+	m.Lock()
+	defer m.Unlock()
 	if m.updateTimeEntry.ID != 0 {
 		return
 	}
@@ -252,6 +254,8 @@ func (m *Toggl) getCurrentTimeEntry() {
 }
 
 func (m *Toggl) updateCurrentTimeEntry() {
+	m.Lock()
+	defer m.Unlock()
 	id := m.updateTimeEntry.ID
 	m.log.Info("Update", m.updateTimeEntry)
 	m.togglClient.UpdateTimeEntry(m.updateTimeEntry)

@@ -46,7 +46,7 @@ func (m *VolumeInfo) InitModule(config json.RawMessage, log xlog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("regex error: %s", err)
 	}
-	regexCard, err := regexp.Compile(`\.card = "(\d+)"`)
+	regexCard, err := regexp.Compile(`^(\d+). `)
 	if err != nil {
 		return fmt.Errorf("regex error: %s", err)
 	}
@@ -62,7 +62,6 @@ func (m *VolumeInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	if err == nil {
 		currentVolume := m.volumeInfo(string(out))
 		info.ShortText = fmt.Sprintf("%f%s", currentVolume, "%")
-		m.log.Debug("currentVolume:", currentVolume)
 		if currentVolume >= 100 {
 			currentVolume -= 99
 			info.TextColor = "#FF2222"
@@ -107,13 +106,11 @@ func (m *VolumeInfo) volumeInfo(out string) float64 {
 	if len(card) == 2 {
 		m.card = card[1]
 	}
-	m.log.Debug("card:", card)
 
 	if len(volumes) == 0 || volumes[1] == "off" || volumes[1] == "igen" {
 		return currentVolume
 	}
 	var err error
-	m.log.Debug("currentVolume222222:", volumes[2])
 	currentVolume, err = strconv.ParseFloat(volumes[2], 64)
 	if err == nil {
 		return currentVolume

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -51,7 +52,8 @@ func (c Client) request(method string, endpoint string, param interface{}) (resp
 	defer res.Body.Close()
 	contentType := res.Header.Get("content-type")
 	if !(res.StatusCode >= 200 && res.StatusCode < 300) {
-		err = errors.New("response wrong status code")
+		err = fmt.Errorf("response wrong status code: %d", res.StatusCode)
+		response, _ = ioutil.ReadAll(res.Body)
 	} else if strings.Contains(contentType, "application/json") {
 		response, err = ioutil.ReadAll(res.Body)
 	} else {

@@ -44,7 +44,6 @@ func (m *Battery) InitModule(config json.RawMessage, log xlog.Logger) error {
 func (m *Battery) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	currEnergy := m.readEnergy("energy_now")
 	freePercent := 100 * (currEnergy / m.fullEnergy)
-	m.log.Infof("%f / %f = %f", currEnergy, m.fullEnergy, freePercent)
 
 	info.ShortText = fmt.Sprintf("%d %s", int(freePercent), "%")
 	info.FullText = makeBar(freePercent, m.barConfig)

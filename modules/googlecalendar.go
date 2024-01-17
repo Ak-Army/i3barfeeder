@@ -35,8 +35,8 @@ func init() {
 type event struct {
 	*calendar.Event
 
-	videoLink string
-	clicked   bool
+	meetingLink string
+	clicked     bool
 }
 
 type GCal struct {
@@ -124,7 +124,7 @@ func (m *GCal) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 						ev.clicked = oe.clicked
 					}
 				}
-				ev.videoLink = m.findVideoLink(ev)
+				ev.meetingLink = m.findMeetingLink(ev)
 				evs = append(evs, ev)
 			}
 			m.events = evs
@@ -161,10 +161,10 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 		if e == nil {
 			e = m.getCurrentEvent()
 		}
-		zoomLink := m.findVideoLink(e)
+		meetingLink := m.findMeetingLink(e)
 		e.clicked = true
-		if zoomLink != "" {
-			m.openURL(zoomLink)
+		if meetingLink != "" {
+			m.openURL(meetingLink)
 		} else {
 			s, _ := json.Marshal(e)
 			m.log.Warnf("unable to find zoom link: %s", string(s))
@@ -204,9 +204,9 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 	return nil, nil
 }
 
-func (m *GCal) findVideoLink(event *event) string {
-	if event.videoLink != "" {
-		return event.videoLink
+func (m *GCal) findMeetingLink(event *event) string {
+	if event.meetingLink != "" {
+		return event.meetingLink
 	}
 	for s, l := range m.MeetingLink {
 		if event.ConferenceData != nil &&
@@ -273,6 +273,10 @@ func (m *GCal) getCurrentEvent() *event {
 				maybeFound = item
 				continue
 			}
+			if !m.isAccepted(item) {
+				maybeFound = item
+				continue
+			}
 			return item
 		} else if maybeFound != nil {
 			return maybeFound
@@ -313,11 +317,11 @@ func (m *GCal) showEvent(event *event, info *gobar.BlockInfo) {
 	if t.After(startDateTime) {
 		info.TextColor = "#30b856"
 	}
-	if !m.isDeclined(event) && !event.clicked && event.videoLink != "" {
+	if m.isAccepted(event) && !event.clicked && event.meetingLink != "" {
 		sub := t.Sub(startDateTime)
 		if sub > -1*time.Minute && sub < time.Minute {
 			event.clicked = true
-			m.openURL(event.videoLink)
+			m.openURL(event.meetingLink)
 		}
 	}
 
@@ -334,6 +338,17 @@ func (m *GCal) isDeclined(event *event) bool {
 	for _, a := range event.Attendees {
 		if a.Email == m.Email {
 			if a.ResponseStatus == "declined" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (m *GCal) isAccepted(event *event) bool {
+	for _, a := range event.Attendees {
+		if a.Email == m.Email {
+			if a.ResponseStatus == "accepted" {
 				return true
 			}
 		}
@@ -394,7 +409,7 @@ func (m *GCal) getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 }
 
 func (m *GCal) openURL(url string) {
-	try := []string{"xdg-open", "firefox", "open"}
+	try := []string{"xdg-open", "brave-browser", "google-chrome", "firefox", "open"}
 	for _, bin := range try {
 		err := exec.Command(bin, url).Run()
 		if err == nil {

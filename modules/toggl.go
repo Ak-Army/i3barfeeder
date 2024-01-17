@@ -70,6 +70,7 @@ func (m *Toggl) InitModule(config json.RawMessage, log xlog.Logger) error {
 	ticker := timer.NewTicker("togglTicker", 10*time.Second)
 	go func() {
 		for t := range ticker.C() {
+			m.Lock()
 			if m.updateTimeEntry.ID == 0 {
 				m.getCurrentTimeEntry()
 			}
@@ -77,6 +78,7 @@ func (m *Toggl) InitModule(config json.RawMessage, log xlog.Logger) error {
 				m.calcRemainingTime()
 				m.updateProjectsAndTasks()
 			}
+			m.Unlock()
 		}
 	}()
 	m.updateTimer = timer.NewTimer("togglUpdateTimer", time.Second)
@@ -93,7 +95,9 @@ func (m *Toggl) InitModule(config json.RawMessage, log xlog.Logger) error {
 
 func (m *Toggl) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	if m.currentTimeEntry.ID != 0 {
-		prettyTime := fmt.Sprintf("%s / %s", prettyPrintDuration(int(m.currentTimeEntry.DurationInSec()), true), m.todayDuration)
+		prettyTime := fmt.Sprintf("%s / %s",
+			prettyPrintDuration(int(m.currentTimeEntry.DurationInSec()), true),
+			m.todayDuration)
 		shortDesc := m.currentTimeEntry.Description
 		if len(m.currentTimeEntry.Description) > 7 {
 			shortDesc = m.currentTimeEntry.Description[0:7]
@@ -231,8 +235,6 @@ func (m *Toggl) getCurrentTimeEntry() {
 		m.log.Error("getCurrentTimeEntry", err)
 		return
 	}
-	m.Lock()
-	defer m.Unlock()
 	if m.updateTimeEntry.ID != 0 {
 		return
 	}
@@ -258,7 +260,10 @@ func (m *Toggl) updateCurrentTimeEntry() {
 	defer m.Unlock()
 	id := m.updateTimeEntry.ID
 	m.log.Info("Update", m.updateTimeEntry)
-	m.togglClient.UpdateTimeEntry(m.updateTimeEntry)
+	_, err := m.togglClient.UpdateTimeEntry(m.updateTimeEntry)
+	if err != nil {
+		return
+	}
 	if id == m.updateTimeEntry.ID {
 		m.updateTimeEntry = toggl.TimeEntry{}
 	} else {
@@ -294,9 +299,7 @@ func (m *Toggl) updateProjectsAndTasks() {
 		tickets = append(tickets, t)
 	}
 	if len(tickets) > 0 {
-		m.Lock()
 		m.tickets = tickets
-		m.Unlock()
 	}
 }
 

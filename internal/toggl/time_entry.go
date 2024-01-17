@@ -2,10 +2,11 @@ package toggl
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/Ak-Army/xlog"
 )
 
 const dateFormatISO8601 = "2006-01-02T15:04:05+00:00"
@@ -116,6 +117,7 @@ func (c *Client) UpdateTimeEntry(timeEntry TimeEntry) (TimeEntry, error) {
 	res, err := c.request("PUT", "/time_entries/"+idString, createTimeEntry)
 
 	if err != nil {
+		xlog.Errorf("Unable to update time entry: %#v", res, err)
 		return TimeEntry{}, err
 	}
 	var response = &currentResponse{}
@@ -128,15 +130,10 @@ func (c *Client) UpdateTimeEntry(timeEntry TimeEntry) (TimeEntry, error) {
 
 func (timeEntry TimeEntry) DurationInSec() float64 {
 	var timeDur time.Duration
-	var err error
 	if timeEntry.Duration < 0 {
 		timeDur = time.Since(timeEntry.Start)
 	} else {
-		durString := fmt.Sprintf("%ds", timeEntry.Duration)
-		timeDur, err = time.ParseDuration(durString)
-		if err != nil {
-			return 0.0
-		}
+		timeDur = time.Duration(timeEntry.Duration) * time.Second
 	}
 	return timeDur.Seconds()
 }

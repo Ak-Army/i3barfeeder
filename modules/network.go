@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -90,6 +91,14 @@ func (m *Network) collectData() (string, uint64, uint64) {
 		txBytes, err := strconv.ParseUint(fields[8], 10, 64)
 		if err != nil {
 			m.log.Warnf("Unable to parse TX field: %s", fields[8])
+		}
+		out, err := exec.Command("iwconfig", name).Output()
+		if err == nil {
+			ssid := strings.Split(string(out), "ESSID:\"")[1]
+			ssid = strings.Split(ssid, "\"")[0]
+			sigLevel := strings.Split(string(out), "Signal level=")[1]
+			sigLevel = strings.Split(sigLevel, " ")[0]
+			name = fmt.Sprintf("%s (%s dB)", ssid, sigLevel)
 		}
 		return name, rxBytes, txBytes
 	}

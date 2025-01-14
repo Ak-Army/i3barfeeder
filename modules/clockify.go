@@ -2,6 +2,7 @@ package modules
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -13,65 +14,67 @@ import (
 	"github.com/Ak-Army/xlog"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
-	"github.com/Ak-Army/i3barfeeder/internal/toggl"
-)
-
-const (
-	secondsPerMinute = 60
-	secondsPerHour   = 60 * 60
+	"github.com/Ak-Army/i3barfeeder/internal/clockify"
 )
 
 func init() {
-	gobar.AddModule("Toggl", func() gobar.ModuleInterface {
-		return &Toggl{todayDuration: "00s"}
+	gobar.AddModule("Clockify", func() gobar.ModuleInterface {
+		return &Clockify{todayDuration: "00s"}
 	})
 }
 
-type Toggl struct {
+type Clockify struct {
 	sync.Mutex
 	gobar.ModuleInterface
-	DefaultWID       int64        `json:"defaultWID"`
-	ApiToken         string       `json:"apiToken"`
-	TicketNames      []ticketName `json:"ticketNames"`
-	tickets          []ticket
-	currentTimeEntry toggl.TimeEntry
-	updateTimeEntry  toggl.TimeEntry
+	ApiToken         string        `json:"apiToken"`
+	TicketNames      []cticketName `json:"ticketNames"`
+	tickets          []cticket
+	currentTimeEntry clockify.TimeEntry
+	updateTimeEntry  clockify.TimeEntry
 	todayDuration    string
 	currentName      int
 	updateTimer      timer.Timer
 	log              xlog.Logger
-	projects         toggl.Projects
-	togglClient      toggl.Client
+	projects         clockify.Projects
+	clockifyClient   clockify.Client
+	clockifyUser     *clockify.User
 }
 
-type ticketName struct {
+type cticketName struct {
 	Name    string `json:"name"`
 	TPId    string `json:"tpId"`
 	Project string `json:"project"`
 }
-type ticket struct {
-	name string
-	PID  int64
-}
-type dayEntry struct {
-	Duration int64
-	Date     time.Time
+
+type cticket struct {
+	name  string
+	PID   string
+	TagId string
 }
 
-func (m *Toggl) InitModule(config json.RawMessage, log xlog.Logger) error {
+func (m *Clockify) InitModule(config json.RawMessage, log xlog.Logger) error {
 	m.log = log
 	if err := json.Unmarshal(config, m); err != nil {
 		return err
 	}
-	m.togglClient = toggl.NewClient(m.ApiToken)
+	m.clockifyClient = clockify.NewClient(m.ApiToken)
+	var err error
+	m.clockifyUser, err = m.clockifyClient.User()
+	m.log.Debugf("User %+v", m.clockifyUser)
+	if err != nil {
+		return err
+	}
+	if m.clockifyUser == nil {
+		return errors.New("no user found")
+	}
 	m.calcRemainingTime()
 	m.updateProjectsAndTasks()
 
-	ticker := timer.NewTicker("togglTicker", 10*time.Second)
+	ticker := timer.NewTicker("clockifyTicker", 10*time.Second)
 	go func() {
 		for t := range ticker.C() {
 			m.Lock()
-			if m.updateTimeEntry.ID == 0 {
+			if m.updateTimeEntry.ID == "" {
 				m.getCurrentTimeEntry()
 			}
 			if t.Minute() > 0 && t.Minute()%5 == 0 {
@@ -93,8 +96,8 @@ func (m *Toggl) InitModule(config json.RawMessage, log xlog.Logger) error {
 	return nil
 }
 
-func (m *Toggl) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
-	if m.currentTimeEntry.ID != 0 {
+func (m *Clockify) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
+	if m.currentTimeEntry.ID != "" {
 		prettyTime := fmt.Sprintf("%s / %s",
 			prettyPrintDuration(int(m.currentTimeEntry.DurationInSec()), true),
 			m.todayDuration)
@@ -112,17 +115,18 @@ func (m *Toggl) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 }
 
 // {"name":"Toggl","instance":"id_0","button":5,"x":2991,"y":12}
-func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
+func (m *Clockify) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	m.Lock()
 	defer m.Unlock()
-	m.currentTimeEntry, _ = m.togglClient.GetCurrentTimeEntry()
+	m.currentTimeEntry, _ = m.clockifyClient.GetCurrentTimeEntry(m.clockifyUser.DefaultWorkspace, m.clockifyUser.ID)
+	m.log.Infof("HandleClick %+v %#v", cm.Button, m.currentTimeEntry)
 	m.updateTimer.SafeStop()
-	m.updateTimeEntry = toggl.TimeEntry{}
+	m.updateTimeEntry = clockify.TimeEntry{}
 	switch cm.Button {
 	case 2: // middle button
 		now := time.Now()
 		from := now.AddDate(0, -1, 0)
-		entries, err := m.togglClient.GetTimeEntries(from, now)
+		entries, err := m.clockifyClient.GetTimeEntries(m.clockifyUser.DefaultWorkspace, m.clockifyUser.ID, from, now)
 		if err == nil {
 			days := map[string]dayEntry{}
 			var sortDay []string
@@ -135,13 +139,13 @@ func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar
 				sortDay = append(sortDay, i)
 			}
 			for _, timeEntry := range entries {
-				if timeEntry.Duration < 0 {
+				if timeEntry.TimeInterval.Duration == "0" {
 					continue
 				}
-				day := timeEntry.Start.Format("2006-01-02")
+				day := timeEntry.TimeInterval.Start.Format("2006-01-02")
 				days[day] = dayEntry{
-					Duration: days[day].Duration + timeEntry.Duration,
-					Date:     timeEntry.Start,
+					Duration: days[day].Duration + int64(timeEntry.DurationInSec()),
+					Date:     timeEntry.TimeInterval.Start,
 				}
 			}
 			m.log.Debugf("Middle click %+v", sortDay)
@@ -174,20 +178,24 @@ func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar
 			}
 		}
 	case 3: // right click, start/stop
-		if m.currentTimeEntry.ID != 0 {
-			m.togglClient.StopTimeEntry(m.currentTimeEntry)
-			m.currentTimeEntry = toggl.TimeEntry{}
+		if m.currentTimeEntry.ID != "" {
+			_, err := m.clockifyClient.StopTimeEntry(m.currentTimeEntry)
+			m.log.Infof("Stop time entry %+v", err)
+			m.currentTimeEntry = clockify.TimeEntry{}
 			m.currentName = 0
 		} else {
-			if m.DefaultWID != 0 {
-				var newTimeEntry = toggl.TimeEntry{
+			xlog.Info("Start time entry")
+			if m.clockifyUser.DefaultWorkspace != "" {
+				var newTimeEntry = clockify.TimeEntry{
 					Description: m.tickets[0].name,
-					WID:         m.DefaultWID,
-					CreatedWith: "hunyi",
-					Start:       time.Now(),
-					Duration:    -1,
+					WorkspaceID: m.clockifyUser.DefaultWorkspace,
+					UserID:      m.clockifyUser.ID,
+					TimeInterval: clockify.TimeInterval{
+						Start: time.Now(),
+					},
+					ProjectID: m.tickets[0].PID,
 				}
-				m.currentTimeEntry, _ = m.togglClient.StartTimeEntry(newTimeEntry)
+				m.currentTimeEntry, _ = m.clockifyClient.StartTimeEntry(newTimeEntry)
 			}
 		}
 	case 4: // scroll up, increase
@@ -196,7 +204,7 @@ func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar
 			m.currentName = 0
 		}
 		m.currentTimeEntry.Description = m.tickets[m.currentName].name
-		m.currentTimeEntry.PID = m.tickets[m.currentName].PID
+		m.currentTimeEntry.ProjectID = m.tickets[m.currentName].PID
 		m.updateTimer.SafeReset(time.Second * 1)
 		m.updateTimeEntry = m.currentTimeEntry
 	case 5: // scroll down, decrease
@@ -205,7 +213,7 @@ func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar
 			m.currentName = len(m.tickets) - 1
 		}
 		m.currentTimeEntry.Description = m.tickets[m.currentName].name
-		m.currentTimeEntry.PID = m.tickets[m.currentName].PID
+		m.currentTimeEntry.ProjectID = m.tickets[m.currentName].PID
 		m.updateTimer.SafeReset(time.Second * 1)
 		m.updateTimeEntry = m.currentTimeEntry
 	}
@@ -213,10 +221,13 @@ func (m *Toggl) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar
 	return &info, nil
 }
 
-func (m *Toggl) calcRemainingTime() {
+func (m *Clockify) calcRemainingTime() {
 	now := time.Now()
 	t := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	timeEntries, err := m.togglClient.GetTimeEntries(t, time.Time{})
+	timeEntries, err := m.clockifyClient.GetTimeEntries(m.clockifyUser.DefaultWorkspace,
+		m.clockifyUser.ID,
+		t,
+		time.Time{})
 	m.log.Debugf("calcRemainingTime %+v", timeEntries, err)
 	m.todayDuration = "00s"
 	if err == nil {
@@ -230,101 +241,70 @@ func (m *Toggl) calcRemainingTime() {
 	}
 }
 
-func (m *Toggl) getCurrentTimeEntry() {
+func (m *Clockify) getCurrentTimeEntry() {
 	var err error
-	currentTimeEntry, err := m.togglClient.GetCurrentTimeEntry()
+	currentTimeEntry, err := m.clockifyClient.GetCurrentTimeEntry(m.clockifyUser.DefaultWorkspace, m.clockifyUser.ID)
 	if err != nil {
 		m.log.Error("getCurrentTimeEntry", err)
 		return
 	}
-	if m.updateTimeEntry.ID != 0 {
+	if m.updateTimeEntry.ID != "" {
 		return
 	}
 	m.currentTimeEntry = currentTimeEntry
 	if len(m.currentTimeEntry.Description) > 50 {
 		m.currentTimeEntry.Description = m.currentTimeEntry.Description[0:50] + "..."
 	}
-	proj := m.projects.FindById(m.currentTimeEntry.PID)
-	if proj == nil {
-		return
-	}
-	task := proj.Tasks.FindById(m.currentTimeEntry.TID)
-	if task == nil {
+	if m.currentTimeEntry.ProjectID != "" {
+		proj := m.projects.FindById(m.currentTimeEntry.ProjectID)
+		if proj == nil {
+			m.log.Error("Project not found", m.currentTimeEntry.ProjectID)
+			return
+		}
 		m.currentTimeEntry.Description += fmt.Sprintf(" - %s", proj.Name)
-		return
 	}
-	m.currentTimeEntry.Description += fmt.Sprintf(" - %s / %s", proj.Name, task.Name)
-
 }
 
-func (m *Toggl) updateCurrentTimeEntry() {
+func (m *Clockify) updateCurrentTimeEntry() {
 	m.Lock()
 	defer m.Unlock()
 	id := m.updateTimeEntry.ID
-	if id == 0 {
+	if id == "" {
 		return
 	}
 	m.log.Info("Update", m.updateTimeEntry)
-	_, err := m.togglClient.UpdateTimeEntry(m.updateTimeEntry)
+	_, err := m.clockifyClient.UpdateTimeEntry(m.updateTimeEntry)
 	if err != nil {
 		return
 	}
 	if id == m.updateTimeEntry.ID {
-		m.updateTimeEntry = toggl.TimeEntry{}
+		m.updateTimeEntry = clockify.TimeEntry{}
 	} else {
 		m.updateTimer.SafeReset(time.Second * 1)
 	}
 }
 
-func (m *Toggl) updateProjectsAndTasks() {
+func (m *Clockify) updateProjectsAndTasks() {
 	var err error
-	m.projects, err = m.togglClient.GetWorkspaceProjects(m.DefaultWID)
+	m.projects, err = m.clockifyClient.GetWorkspaceProjects(m.clockifyUser.DefaultWorkspace)
 	if err != nil {
 		m.log.Error("Unable to get workspace projects", err)
 	}
-	/*for _, p := range m.projects {
-		p.Tasks, err = m.togglClient.GetProjectTasks(p.WID, p.ID)
-		if err != nil {
-			m.log.Errorf("Unable to get project tasks: %d %s", p.ID, p.Name)
-		}
-	}*/
-	var tickets []ticket
+
+	var tickets []cticket
 	for _, ticketName := range m.TicketNames {
-		t := ticket{
-			name: fmt.Sprintf("%s %s", ticketName.TPId, ticketName.Name),
+		t := cticket{
+			name: ticketName.Name,
 		}
-		if ticketName.Project != "" {
-			proj := m.projects.FindByName(ticketName.Project)
-			if proj == nil {
-				m.log.Errorf("Project not found: %s", ticketName.Project)
-				continue
-			}
-			t.PID = proj.ID
+		proj := m.projects.FindByName(ticketName.Project)
+		if proj == nil {
+			m.log.Errorf("Project not found: %s", ticketName.Project)
+			continue
 		}
+		t.PID = proj.ID
 		tickets = append(tickets, t)
 	}
 	if len(tickets) > 0 {
 		m.tickets = tickets
 	}
-}
-
-func prettyPrintDuration(sec int, withSec bool) string {
-	var hour, min int
-	hour = sec / secondsPerHour
-	sec -= hour * secondsPerHour
-	min = sec / secondsPerMinute
-	sec -= min * secondsPerMinute
-
-	returnString := ""
-	if hour > 0 {
-		returnString = fmt.Sprintf("%s%02dH ", returnString, hour)
-	}
-	if min > 0 {
-		returnString = fmt.Sprintf("%s%02dm ", returnString, min)
-	}
-	if sec > 0 && withSec {
-		returnString = fmt.Sprintf("%s%02ds", returnString, sec)
-	}
-
-	return returnString
 }

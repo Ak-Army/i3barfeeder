@@ -1,4 +1,4 @@
-package toggl
+package clockify
 
 import (
 	"bytes"
@@ -19,9 +19,10 @@ type Client struct {
 	apiToken  string
 }
 
+// M2MzZGYyZGYtM2E0My00Y2I5LTg4NmItNzEyYmU3ZmVmMWIy
 func NewClient(apiToken string) Client {
 	transport := &http.Transport{}
-	baseUrl := "https://api.track.toggl.com/api/v9"
+	baseUrl := "https://api.clockify.me/api/v1"
 
 	return Client{
 		client:    &http.Client{Transport: transport},
@@ -43,11 +44,11 @@ func (c Client) request(method string, endpoint string, param interface{}) (resp
 	if err != nil {
 		return
 	}
-	req.SetBasicAuth(c.apiToken, "api_token")
+	req.Header.Set("X-Api-Key", c.apiToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	xlog.Info("Requesting %s %s", method, c.baseUrl+endpoint)
+	xlog.Infof("Requesting %s %s", method, c.baseUrl+endpoint)
 	res, err := c.client.Do(req)
 	if err != nil {
 		return

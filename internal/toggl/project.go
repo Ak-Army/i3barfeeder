@@ -81,9 +81,9 @@ func (c *Client) GetWorkspaceProjects(wid int64) (Projects, error) {
 	return projects, err
 }
 
-func (c *Client) GetProjectTasks(pid int64) (Tasks, error) {
+func (c *Client) GetProjectTasks(wid int64, pid int64) (Tasks, error) {
 	var tasks Tasks
-	res, err := c.request("GET", fmt.Sprintf("/projects/%d/tasks", pid), nil)
+	res, err := c.request("GET", fmt.Sprintf("/workspaces/%d/projects/%d/tasks", wid, pid), nil)
 	if err != nil {
 		return tasks, err
 	}

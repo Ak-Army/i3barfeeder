@@ -56,6 +56,7 @@ type GCal struct {
 	info          string
 	currentEvent  *event
 	eventLock     sync.Mutex
+	leftClick     time.Time
 }
 
 func (m *GCal) InitModule(config json.RawMessage, log xlog.Logger) error {
@@ -109,26 +110,7 @@ func (m *GCal) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	}
 	if time.Since(m.lastQuery) > time.Hour/2 {
 		m.lastQuery = time.Now()
-		t := m.lastQuery.Truncate(time.Hour * 24)
-		gevents, err := m.googleService.Events.List("primary").ShowDeleted(false).
-			SingleEvents(true).TimeMin(t.Format(time.RFC3339)).MaxResults(10).
-			OrderBy("startTime").Do()
-		if err != nil {
-			m.log.Errorf("Unable to retrieve next ten of the user's events: %v", err)
-		} else {
-			var evs []*event
-			for _, e := range gevents.Items {
-				ev := &event{Event: e}
-				for _, oe := range m.events {
-					if oe.Id == e.Id {
-						ev.clicked = oe.clicked
-					}
-				}
-				ev.meetingLink = m.findMeetingLink(ev)
-				evs = append(evs, ev)
-			}
-			m.events = evs
-		}
+		m.reloadEvents()
 	}
 	if m.currentEvent == nil {
 		info.ShortText = "No events"
@@ -141,11 +123,39 @@ func (m *GCal) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	return info
 }
 
-func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
-	defer func() {
+func (m *GCal) reloadEvents() {
+	m.log.Info("Load google events")
+	t := m.lastQuery.Truncate(time.Hour * 24)
+	gevents, err := m.googleService.Events.List("primary").ShowDeleted(false).
+		SingleEvents(true).TimeMin(t.Format(time.RFC3339)).MaxResults(10).
+		OrderBy("startTime").Do()
+	if err != nil {
+		m.log.Errorf("Unable to retrieve next ten of the user's events: %v", err)
+	} else {
+		var evs []*event
+		for _, e := range gevents.Items {
+			ev := &event{Event: e}
+			for _, oe := range m.events {
+				if oe.Id == e.Id {
+					ev.clicked = oe.clicked
+				}
+			}
+			ev.meetingLink = m.findMeetingLink(ev)
+			evs = append(evs, ev)
+		}
+		m.events = evs
+	}
+}
 
-	}()
+func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	switch cm.Button {
+	case 1: // left click
+		m.leftClick = time.Now()
+		if time.Now().Sub(m.leftClick) <= time.Second {
+			m.reloadEvents()
+			m.leftClick = time.Now().Add(-time.Second * 10)
+		}
+		return &info, nil
 	case 2: // middle button
 		m.eventLock.Lock()
 		m.currentEvent = nil
@@ -195,7 +205,7 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 			if item.Id == e.Id && i > 0 {
 				m.showEvent(m.events[i-1], &info)
 				m.eventLock.Lock()
-				//m.currentEvent = m.events.Items[i-1]
+				m.currentEvent = m.events[i-1]
 				m.eventLock.Unlock()
 				return &info, nil
 			}

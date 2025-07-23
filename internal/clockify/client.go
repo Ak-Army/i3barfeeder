@@ -8,8 +8,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
-
-	"github.com/Ak-Army/xlog"
 )
 
 type Client struct {
@@ -48,7 +46,7 @@ func (c Client) request(method string, endpoint string, param interface{}) (resp
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	xlog.Infof("Requesting %s %s", method, c.baseUrl+endpoint)
+	//xlog.Debugf("Requesting %s %s", method, c.baseUrl+endpoint)
 	res, err := c.client.Do(req)
 	if err != nil {
 		return

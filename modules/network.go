@@ -94,9 +94,13 @@ func (m *Network) collectData() (string, uint64, uint64) {
 		}
 		out, err := exec.Command("iwconfig", name).Output()
 		if err == nil {
-			ssid := strings.Split(string(out), "ESSID:\"")[1]
+			ssids := strings.SplitN(string(out), "ESSID:\"", 2)
+			if len(ssids) < 2 {
+				return name, rxBytes, txBytes
+			}
+			ssid := ssids[1]
 			ssid = strings.Split(ssid, "\"")[0]
-			sigLevel := strings.Split(string(out), "Signal level=")[1]
+			sigLevel := strings.SplitN(string(out), "Signal level=", 2)[1]
 			sigLevel = strings.Split(sigLevel, " ")[0]
 			name = fmt.Sprintf("%s (%s dB)", ssid, sigLevel)
 		}

@@ -1,7 +1,6 @@
 package modules
 
 import (
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -9,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Ak-Army/config"
 	"github.com/Ak-Army/timer"
 	"github.com/Ak-Army/xlog"
 
@@ -29,10 +29,10 @@ func init() {
 
 type Toggl struct {
 	sync.Mutex
-	gobar.ModuleInterface
-	DefaultWID       int64        `json:"defaultWID"`
-	ApiToken         string       `json:"apiToken"`
-	TicketNames      []ticketName `json:"ticketNames"`
+	gobar.BaseModule
+	DefaultWID       int64        `config:"defaultWID"`
+	ApiToken         string       `config:"apiToken,encrypted"`
+	TicketNames      []ticketName `config:"ticketNames"`
 	tickets          []ticket
 	currentTimeEntry toggl.TimeEntry
 	updateTimeEntry  toggl.TimeEntry
@@ -45,9 +45,9 @@ type Toggl struct {
 }
 
 type ticketName struct {
-	Name    string `json:"name"`
-	TPId    string `json:"tpId"`
-	Project string `json:"project"`
+	Name    string `config:"name"`
+	TPId    string `config:"tpId"`
+	Project string `config:"project"`
 }
 type ticket struct {
 	name string
@@ -58,9 +58,9 @@ type dayEntry struct {
 	Date     time.Time
 }
 
-func (m *Toggl) InitModule(config json.RawMessage, log xlog.Logger) error {
+func (m *Toggl) InitModule(c *config.SubConfig, log xlog.Logger) error {
 	m.log = log
-	if err := json.Unmarshal(config, m); err != nil {
+	if err := c.Load(m); err != nil {
 		return err
 	}
 	m.togglClient = toggl.NewClient(m.ApiToken)

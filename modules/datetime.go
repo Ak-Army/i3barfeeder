@@ -1,11 +1,11 @@
 package modules
 
 import (
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"time"
 
+	"github.com/Ak-Army/config"
 	"github.com/Ak-Army/xlog"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
@@ -21,16 +21,16 @@ func init() {
 }
 
 type DateTime struct {
-	gobar.ModuleInterface
-	Format      string `json:"format"`
-	ShortFormat string `json:"shortFormat"`
-	Location    string `json:"location"`
+	gobar.BaseModule
+	Format      string `config:"format"`
+	ShortFormat string `config:"shortFormat"`
+	Location    string `config:"location"`
 	location    *time.Location
 }
 
-func (m *DateTime) InitModule(config json.RawMessage, log xlog.Logger) error {
-	if config != nil {
-		if err := json.Unmarshal(config, m); err != nil {
+func (m *DateTime) InitModule(c *config.SubConfig, log xlog.Logger) error {
+	if c != nil {
+		if err := c.Load(m); err != nil {
 			return err
 		}
 	}
@@ -50,7 +50,7 @@ func (m *DateTime) InitModule(config json.RawMessage, log xlog.Logger) error {
 	return nil
 }
 
-func (m DateTime) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
+func (m *DateTime) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	var now time.Time
 	now = time.Now()
 	if m.location != nil {
@@ -61,6 +61,7 @@ func (m DateTime) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	info.ShortText = now.Format(m.ShortFormat)
 	return info
 }
-func (m DateTime) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
+
+func (m *DateTime) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	return nil, exec.Command("gsimplecal").Run()
 }

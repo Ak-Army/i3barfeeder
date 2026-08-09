@@ -1,11 +1,11 @@
 package gobar
 
 import (
-	"encoding/json"
 	"fmt"
 	"runtime/debug"
 	"time"
 
+	"github.com/Ak-Army/config"
 	"github.com/Ak-Army/xlog"
 )
 
@@ -31,13 +31,12 @@ type BlockInfo struct {
 
 // Block i3  item
 type Block struct {
-	ModuleName string          `config:"module" json:"module"`
-	Label      string          `config:"label" json:"label"`
-	Interval   int64           `config:"interval" json:"interval"`
-	Info       BlockInfo       `config:"info" json:"info,omitempty"`
-	Config     json.RawMessage `config:"config" json:"config,omitempty"`
+	ModuleName string            `config:"module" json:"module"`
+	Label      string            `config:"label" json:"label"`
+	Interval   int64             `config:"interval" json:"interval"`
+	Info       BlockInfo         `config:"info" json:"info,omitempty"`
+	Config     *config.SubConfig `config:"config" json:"config,omitempty"`
 	module     ModuleInterface
-	lastUpdate int64
 }
 
 type UpdateChannelMsg struct {
@@ -64,14 +63,12 @@ func (block *Block) CreateModule(id int, log xlog.Logger) error {
 			FullText:  err.Error(),
 			Name:      "StaticText",
 		}
-		block.Config = json.RawMessage{}
 		block.module = moduleRegistry["StaticText"]()
 		block.module.InitModule(block.Config, log)
 	}
 	return err
 }
-
-func (block Block) Start(ID int, updateChannel chan<- UpdateChannelMsg) {
+func (block *Block) Start(ID int, updateChannel chan<- UpdateChannelMsg, stop <-chan bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			xlog.Errorf("recovered: %s -> stackTrace: %s", r, debug.Stack())
@@ -83,15 +80,22 @@ func (block Block) Start(ID int, updateChannel chan<- UpdateChannelMsg) {
 			ID:   ID,
 			Info: newInfo,
 		}
-		updateChannel <- m
-		block.lastUpdate = time.Now().Unix()
-		if block.Interval == 0 {
-			break
+		select {
+		case updateChannel <- m:
+		case <-stop:
+			return
 		}
-		time.Sleep(time.Duration(block.Interval) * time.Second)
+		if block.Interval == 0 {
+			return
+		}
+		select {
+		case <-time.After(time.Duration(block.Interval) * time.Second):
+		case <-stop:
+			return
+		}
 	}
 }
 
-func (block Block) HandleClick(cm ClickMessage) (*BlockInfo, error) {
+func (block *Block) HandleClick(cm ClickMessage) (*BlockInfo, error) {
 	return block.module.HandleClick(cm, block.Info)
 }

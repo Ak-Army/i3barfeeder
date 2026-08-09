@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 
+	"github.com/Ak-Army/config"
 	"github.com/Ak-Army/xlog"
 )
 
@@ -17,9 +18,23 @@ const (
 )
 
 type ModuleInterface interface {
-	InitModule(config json.RawMessage, log xlog.Logger) error
+	InitModule(config *config.SubConfig, log xlog.Logger) error
 	UpdateInfo(info BlockInfo) BlockInfo
 	HandleClick(cm ClickMessage, info BlockInfo) (*BlockInfo, error)
+}
+
+// BaseModule supplies the two optional halves of ModuleInterface, so a module
+// only writes the parts it needs. Embed this rather than ModuleInterface itself:
+// embedding the interface satisfies the compiler with a nil value, turning a
+// forgotten UpdateInfo into a runtime panic instead of a build error.
+type BaseModule struct{}
+
+func (BaseModule) InitModule(c *config.SubConfig, log xlog.Logger) error {
+	return nil
+}
+
+func (BaseModule) HandleClick(cm ClickMessage, info BlockInfo) (*BlockInfo, error) {
+	return nil, nil
 }
 
 type BlockMarkup string

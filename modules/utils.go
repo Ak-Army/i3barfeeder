@@ -6,13 +6,26 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"sort"
 )
 
+// openURL opens the URL with the first browser that accepts it.
+func openURL(url string) error {
+	try := []string{"xdg-open", "brave-browser", "google-chrome", "firefox", "open"}
+	var err error
+	for _, bin := range try {
+		if err = exec.Command(bin, url).Run(); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("unable to open URL in a browser: %w", err)
+}
+
 type barConfig struct {
-	BarSize  int    `json:"barSize"`
-	BarFull  string `json:"barFull"`
-	BarEmpty string `json:"barEmpty"`
+	BarSize  int    `config:"barSize"`
+	BarFull  string `config:"barFull"`
+	BarEmpty string `config:"barEmpty"`
 }
 
 func defaultBarConfig() barConfig {
@@ -63,6 +76,16 @@ func byteSize(b uint64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "kMGTPE"[exp])
+}
+
+// delta guards against the counters going backwards, which happens whenever the
+// interface disappears and collectData falls back to zero. An unchecked uint64
+// subtraction would render as exabytes.
+func delta(curr, prev uint64) uint64 {
+	if curr < prev {
+		return 0
+	}
+	return curr - prev
 }
 
 type sortedMap struct {

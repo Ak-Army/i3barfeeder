@@ -1,12 +1,12 @@
 package modules
 
 import (
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
 
+	"github.com/Ak-Army/config"
 	"github.com/Ak-Army/xlog"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
@@ -21,35 +21,41 @@ func init() {
 }
 
 type CpuInfo struct {
-	gobar.ModuleInterface
+	gobar.BaseModule
 	barConfig barConfig
+	prevTotal uint64
+	prevIdle  uint64
 }
 
-var prevTotal, prevIdle uint64
-
-func (m *CpuInfo) InitModule(config json.RawMessage, log xlog.Logger) error {
-	if config != nil {
-		return json.Unmarshal(config, &m.barConfig)
+func (m *CpuInfo) InitModule(c *config.SubConfig, log xlog.Logger) error {
+	if c != nil {
+		if err := c.Load(m); err != nil {
+			return err
+		}
+		return c.Load(&m.barConfig)
 	}
 	return nil
 }
 
-func (m CpuInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
+func (m *CpuInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	cpuUsage := m.CpuInfo()
 	info.ShortText = fmt.Sprintf("%d %s", int(cpuUsage), "%")
 	info.FullText = makeBar(cpuUsage, m.barConfig)
 	return info
 }
-func (m CpuInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
+func (m *CpuInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	split := strings.Split("gnome-system-monitor -p", " ")
 	return nil, exec.Command(split[0], split[1:]...).Start()
 }
 
-func (m CpuInfo) CpuInfo() (cpuUsage float64) {
+func (m *CpuInfo) CpuInfo() (cpuUsage float64) {
 	// Return the percent utilization of the CPU.
 	var idle, total uint64
 	callback := func(line string) bool {
 		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			return true
+		}
 		if fields[0] == "cpu" {
 			numFields := len(fields)
 			for i := 1; i < numFields; i++ {
@@ -65,12 +71,14 @@ func (m CpuInfo) CpuInfo() (cpuUsage float64) {
 	}
 	readLines("/proc/stat", callback)
 
-	if prevIdle > 0 {
-		idleTicks := float64(idle - prevIdle)
-		totalTicks := float64(total - prevTotal)
-		cpuUsage = 100 * (totalTicks - idleTicks) / totalTicks
+	if m.prevIdle > 0 {
+		idleTicks := float64(delta(idle, m.prevIdle))
+		totalTicks := float64(delta(total, m.prevTotal))
+		if totalTicks > 0 {
+			cpuUsage = 100 * (totalTicks - idleTicks) / totalTicks
+		}
 	}
-	prevIdle = idle
-	prevTotal = total
+	m.prevIdle = idle
+	m.prevTotal = total
 	return
 }

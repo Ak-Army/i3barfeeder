@@ -8,7 +8,12 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"time"
 )
+
+// requestTimeout bounds every API call: without it a stuck connection blocks the
+// module goroutine forever.
+const requestTimeout = 10 * time.Second
 
 type Client struct {
 	client    *http.Client
@@ -22,7 +27,7 @@ func NewClient(apiToken string) Client {
 	baseUrl := "https://api.track.toggl.com/api/v9"
 
 	return Client{
-		client:    &http.Client{Transport: transport},
+		client:    &http.Client{Transport: transport, Timeout: requestTimeout},
 		transport: transport,
 		baseUrl:   baseUrl,
 		apiToken:  apiToken,

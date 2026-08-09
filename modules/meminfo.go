@@ -1,11 +1,11 @@
 package modules
 
 import (
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
 
+	"github.com/Ak-Army/config"
 	"github.com/Ak-Army/xlog"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
@@ -20,19 +20,24 @@ func init() {
 }
 
 type MemInfo struct {
-	gobar.ModuleInterface
+	gobar.BaseModule
 	barConfig barConfig
 }
 
-func (m *MemInfo) InitModule(config json.RawMessage, log xlog.Logger) error {
-	if config != nil {
-		return json.Unmarshal(config, &m.barConfig)
+func (m *MemInfo) InitModule(c *config.SubConfig, log xlog.Logger) error {
+	if c != nil {
+		return c.Load(&m.barConfig)
 	}
 	return nil
 }
 
-func (m MemInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
+func (m *MemInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	free, total := m.memInfo()
+	if total == 0 {
+		info.ShortText = "N/A"
+		info.FullText = "N/A"
+		return info
+	}
 	freePercent := 100 - 100*(free/total)
 	info.ShortText = fmt.Sprintf("%d %s", int(freePercent), "%")
 	info.FullText = makeBar(freePercent, m.barConfig)
@@ -40,13 +45,13 @@ func (m MemInfo) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	return info
 }
 
-func (m MemInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
+func (m *MemInfo) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	split := strings.Split("gnome-system-monitor -r", " ")
 
 	return nil, exec.Command(split[0], split[1:]...).Start()
 }
 
-func (m MemInfo) memInfo() (float64, float64) {
+func (m *MemInfo) memInfo() (float64, float64) {
 	mem := map[string]float64{
 		"MemTotal": 0,
 		"MemFree":  0,

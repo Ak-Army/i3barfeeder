@@ -10,72 +10,87 @@ import (
 	"github.com/Ak-Army/config"
 	"github.com/Ak-Army/config/backend"
 	"github.com/Ak-Army/config/backend/file"
+	"github.com/Ak-Army/config/crypto"
+	"github.com/Ak-Army/config/crypto/aesgcm"
 	"github.com/Ak-Army/xlog"
 )
 
-var store *Store
 var defaults reflect.Value
 
 type Config struct {
+	mu       sync.RWMutex
 	Defaults *BlockInfo `config:"defaults"`
 	Blocks   []Block    `config:"blocks"`
+
+	bar *Bar
 }
 
-type Store struct {
-	mu     sync.RWMutex
-	config *Config
-	bar    *Bar
-	err    error
-}
-
-func (c *Store) NewSnapshot() interface{} {
+func (c *Config) Default() *Config {
 	xlog.Info("New snapshot")
 	return &Config{}
 }
 
-func (c *Store) SetSnapshot(confInterface interface{}, err error) {
+func (c *Config) Set(conf *Config) {
+	go c.apply(conf)
+}
+
+func (c *Config) apply(conf *Config) {
+	// Nothing above this goroutine can recover for us, so a bad config must not
+	// be able to take the process down.
+	defer func() {
+		if r := recover(); r != nil {
+			xlog.Errorf("Unable to apply the configuration: %v %s", r, debug.Stack())
+		}
+	}()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	conf := confInterface.(*Config)
-	c.config = conf
-	if c.bar != nil {
-		newBar := c.config.createBar()
+
+	c.Defaults = conf.Defaults
+	c.Blocks = conf.Blocks
+
+	// Build first, swap second: createBar recovers from a panic and returns nil,
+	// and a broken config should leave the running bar alone rather than replace
+	// it with nothing.
+	bar := conf.createBar()
+	if bar == nil {
+		xlog.Error("Configuration was not applied, keeping the previous bar")
+		return
+	}
+	hasBar := c.bar != nil
+	if hasBar {
 		c.bar.Stop()
-		c.bar = newBar
+	}
+	c.bar = bar
+	if !hasBar {
+		c.bar.Start()
+	} else {
 		c.bar.ReStart()
 	}
-	c.err = err
 }
 
-func (c *Store) Config() (*Config, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.config, c.err
-}
-
-func New(f string) (*Store, error) {
-	var err error
-	(&sync.Once{}).Do(func() {
-		var loader *config.Loader
-		store = &Store{}
-		loader, store.err = config.NewLoader(context.Background(),
-			file.New(
-				file.WithPath(f),
-				file.WithWatchInterval(time.Minute),
-				file.WithOption(backend.WithWatcher()),
-			),
-		)
-		if err != nil {
-			return
-		}
-		store.err = loader.Load(store)
-	})
-	return store, err
-}
-
-func (c *Store) Start() {
-	c.bar = c.config.createBar()
-	c.bar.Start()
+func New(f string, keyring string) error {
+	cr, cerr := crypto.New(keyring,
+		func(key []byte) (crypto.Decrypter, error) {
+			return aesgcm.New(key)
+		})
+	if cerr != nil {
+		xlog.Warnf("Unable to read the config keyring, encrypted values will fail: %s", cerr)
+	}
+	loader, err := config.NewLoader(context.Background(),
+		file.New(
+			file.WithPath(f),
+			file.WithWatchInterval(time.Minute),
+			file.WithOption(backend.WithWatcher()),
+		),
+	)
+	if err != nil {
+		return err
+	}
+	if cr != nil {
+		loader.SetCrypto(cr)
+	}
+	conf := config.NewStore[Config](&Config{})
+	return config.Load(loader, conf)
 }
 
 func (c *Config) createBar() *Bar {
@@ -86,13 +101,21 @@ func (c *Config) createBar() *Bar {
 	}()
 	log := xlog.GetLogger()
 	updateChannel := make(chan UpdateChannelMsg)
-	xlog.Info(c.Defaults)
-	defaults = reflect.ValueOf(c.Defaults).Elem()
+	stop := make(chan bool)
+	// The `defaults` section is optional. Assign either way, so a reload that
+	// drops the section does not keep applying the previous one.
+	defaults = defaultsValueFor(c.Defaults)
 	for i := range c.Blocks {
 		mapDefaults(&c.Blocks[i].Info)
 		err := c.Blocks[i].CreateModule(i, log)
+		xlog.Info("Block create", c.Blocks[i].Info.Name)
 		if err == nil {
-			go c.Blocks[i].Start(i, updateChannel)
+			// The goroutine runs on its own copy: Bar.blocks below shares this
+			// backing array, so starting it on &c.Blocks[i] would have the block
+			// read and write the very element Bar.Print and Bar.update touch
+			// under the bar's mutex. State reaches the bar through updateChannel.
+			block := c.Blocks[i]
+			go block.Start(i, updateChannel, stop)
 		} else {
 			log.Error(err)
 		}
@@ -103,10 +126,24 @@ func (c *Config) createBar() *Bar {
 		blocks:        c.Blocks,
 		log:           log,
 		updateChannel: updateChannel,
+		stop:          stop,
 	}
 }
 
+// defaultsValueFor turns the optional `defaults` section into the value
+// mapDefaults reads. A missing section yields the zero Value, which mapDefaults
+// skips rather than panicking on.
+func defaultsValueFor(info *BlockInfo) reflect.Value {
+	if info == nil {
+		return reflect.Value{}
+	}
+	return reflect.ValueOf(info).Elem()
+}
+
 func mapDefaults(blockInfo *BlockInfo) {
+	if !defaults.IsValid() {
+		return
+	}
 	info := reflect.ValueOf(blockInfo).Elem()
 
 	for i, n := 0, defaults.NumField(); i < n; i++ {

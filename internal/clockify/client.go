@@ -5,10 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
+	"time"
 )
+
+// requestTimeout bounds every API call: without it a stuck connection blocks the
+// module goroutine forever, holding the Clockify module lock with it.
+const requestTimeout = 10 * time.Second
 
 type Client struct {
 	client    *http.Client
@@ -17,19 +22,18 @@ type Client struct {
 	apiToken  string
 }
 
-// M2MzZGYyZGYtM2E0My00Y2I5LTg4NmItNzEyYmU3ZmVmMWIy
 func NewClient(apiToken string) Client {
 	transport := &http.Transport{}
 	baseUrl := "https://api.clockify.me/api/v1"
 
 	return Client{
-		client:    &http.Client{Transport: transport},
+		client:    &http.Client{Transport: transport, Timeout: requestTimeout},
 		transport: transport,
 		baseUrl:   baseUrl,
 		apiToken:  apiToken,
 	}
 }
-func (c Client) request(method string, endpoint string, param interface{}) (response []byte, err error) {
+func (c *Client) request(method string, endpoint string, param any) (response []byte, err error) {
 	var bodyText []byte
 	if param != nil {
 		bodyText, err = json.Marshal(param)
@@ -55,9 +59,9 @@ func (c Client) request(method string, endpoint string, param interface{}) (resp
 	contentType := res.Header.Get("content-type")
 	if !(res.StatusCode >= 200 && res.StatusCode < 300) {
 		err = fmt.Errorf("response wrong status code: %d", res.StatusCode)
-		response, _ = ioutil.ReadAll(res.Body)
+		response, _ = io.ReadAll(res.Body)
 	} else if strings.Contains(contentType, "application/json") {
-		response, err = ioutil.ReadAll(res.Body)
+		response, err = io.ReadAll(res.Body)
 	} else {
 		err = errors.New("response wrong content type")
 	}

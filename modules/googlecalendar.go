@@ -4,16 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Ak-Army/config"
 	"github.com/Ak-Army/xlog"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -40,15 +39,15 @@ type event struct {
 }
 
 type GCal struct {
-	gobar.ModuleInterface
-	SecretFile  string `json:"secretFile"`
-	TokenFile   string `json:"tokenFile"`
-	Email       string `json:"email"`
+	gobar.BaseModule
+	SecretFile  string `config:"secretFile"`
+	TokenFile   string `config:"tokenFile"`
+	Email       string `config:"email"`
 	MeetingLink map[string]*struct {
-		Regex  string `json:"regex"`
-		Simple string `json:"simple"`
+		Regex  string `config:"regex"`
+		Simple string `config:"simple"`
 		regex  *regexp.Regexp
-	} `json:"meetingLink"`
+	} `config:"meetingLink"`
 	log           xlog.Logger
 	googleService *calendar.Service
 	lastQuery     time.Time
@@ -59,10 +58,10 @@ type GCal struct {
 	leftClick     time.Time
 }
 
-func (m *GCal) InitModule(config json.RawMessage, log xlog.Logger) error {
+func (m *GCal) InitModule(c *config.SubConfig, log xlog.Logger) error {
 	m.log = log
-	if config != nil {
-		if err := json.Unmarshal(config, m); err != nil {
+	if c != nil {
+		if err := c.Load(m); err != nil {
 			return err
 		}
 	}
@@ -78,16 +77,16 @@ func (m *GCal) InitModule(config json.RawMessage, log xlog.Logger) error {
 		}
 	}
 	ctx := context.Background()
-	b, err := ioutil.ReadFile(m.SecretFile)
+	b, err := os.ReadFile(m.SecretFile)
 	if err != nil {
 		return err
 	}
 	// If modifying these scopes, delete your previously saved token.json.
-	c, err := google.ConfigFromJSON(b, calendar.CalendarReadonlyScope)
+	gc, err := google.ConfigFromJSON(b, calendar.CalendarReadonlyScope)
 	if err != nil {
 		return err
 	}
-	client := m.getClient(c)
+	client := m.getClient(gc)
 	if client == nil {
 		return nil
 	}
@@ -115,8 +114,9 @@ func (m *GCal) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	if m.currentEvent == nil {
 		info.ShortText = "No events"
 		info.FullText = "No upcoming events found."
-		event := m.getCurrentEvent()
-		m.showEvent(event, &info)
+		if event := m.getCurrentEvent(); event != nil {
+			m.showEvent(event, &info)
+		}
 	} else {
 		m.showEvent(m.currentEvent, &info)
 	}
@@ -149,19 +149,21 @@ func (m *GCal) reloadEvents() {
 
 func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	switch cm.Button {
-	case 1: // left click
-		m.leftClick = time.Now()
-		if time.Now().Sub(m.leftClick) <= time.Second {
+	case 1: // left click, a double click within a second reloads the events
+		if !m.leftClick.IsZero() && time.Since(m.leftClick) <= time.Second {
 			m.reloadEvents()
-			m.leftClick = time.Now().Add(-time.Second * 10)
+			m.leftClick = time.Time{}
+		} else {
+			m.leftClick = time.Now()
 		}
 		return &info, nil
 	case 2: // middle button
 		m.eventLock.Lock()
 		m.currentEvent = nil
 		m.eventLock.Unlock()
-		e := m.getCurrentEvent()
-		m.showEvent(e, &info)
+		if e := m.getCurrentEvent(); e != nil {
+			m.showEvent(e, &info)
+		}
 
 		return &info, nil
 	case 3: // right click, join zoom
@@ -170,6 +172,9 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 		m.eventLock.Unlock()
 		if e == nil {
 			e = m.getCurrentEvent()
+		}
+		if e == nil {
+			return nil, nil
 		}
 		meetingLink := m.findMeetingLink(e)
 		e.clicked = true
@@ -187,6 +192,9 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 		if e == nil {
 			e = m.getCurrentEvent()
 		}
+		if e == nil {
+			return nil, nil
+		}
 		l := len(m.events) - 1
 		for i, item := range m.events {
 			if item.Id == e.Id && i < l {
@@ -201,6 +209,12 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 		m.eventLock.Lock()
 		e := m.currentEvent
 		m.eventLock.Unlock()
+		if e == nil {
+			e = m.getCurrentEvent()
+		}
+		if e == nil {
+			return nil, nil
+		}
 		for i, item := range m.events {
 			if item.Id == e.Id && i > 0 {
 				m.showEvent(m.events[i-1], &info)
@@ -215,6 +229,9 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 }
 
 func (m *GCal) findMeetingLink(event *event) string {
+	if event == nil {
+		return ""
+	}
 	if event.meetingLink != "" {
 		return event.meetingLink
 	}
@@ -256,7 +273,7 @@ func (m *GCal) findMeetingLink(event *event) string {
 		linesLen := len(lines)
 		for i, line := range lines {
 			if line == l.Simple {
-				if l.regex != nil && linesLen < i {
+				if l.regex != nil && i+1 < linesLen {
 					url := l.regex.FindString(lines[i+1])
 					if url != "" {
 						return url
@@ -274,6 +291,9 @@ func (m *GCal) getCurrentEvent() *event {
 	t := time.Now().Add(10 * time.Minute)
 	var maybeFound *event
 	for _, item := range m.events {
+		if !hasTimes(item) || m.isAllDayEvent(item) {
+			continue
+		}
 		endDateTime, err := time.Parse(time.RFC3339, item.End.DateTime)
 		if err != nil {
 			continue
@@ -293,6 +313,9 @@ func (m *GCal) getCurrentEvent() *event {
 		}
 	}
 	for _, item := range m.events {
+		if !hasTimes(item) {
+			continue
+		}
 		endDateTime, err := time.Parse(time.RFC3339, item.End.Date)
 		if err != nil {
 			continue
@@ -311,6 +334,9 @@ func (m *GCal) getCurrentEvent() *event {
 }
 
 func (m *GCal) showEvent(event *event, info *gobar.BlockInfo) {
+	if !hasTimes(event) {
+		return
+	}
 	startDateTime, err := time.Parse(time.RFC3339, event.Start.DateTime)
 	if err != nil {
 		return
@@ -366,6 +392,17 @@ func (m *GCal) isAccepted(event *event) bool {
 	return false
 }
 
+func (m *GCal) isAllDayEvent(event *event) bool {
+	return hasTimes(event) && (event.Start.Date != "" || event.End.Date != "")
+}
+
+// hasTimes reports whether the event carries both of its time fields. Start and
+// End are pointers in the calendar API, so dereferencing them unchecked panics,
+// which kills the block goroutine for good.
+func hasTimes(e *event) bool {
+	return e != nil && e.Start != nil && e.End != nil
+}
+
 // Retrieve a token, saves the token, then returns the generated client.
 func (m *GCal) getClient(config *oauth2.Config) *http.Client {
 	// The file token.json stores the user's access and refresh tokens, and is
@@ -419,14 +456,9 @@ func (m *GCal) getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 }
 
 func (m *GCal) openURL(url string) {
-	try := []string{"xdg-open", "brave-browser", "google-chrome", "firefox", "open"}
-	for _, bin := range try {
-		err := exec.Command(bin, url).Run()
-		if err == nil {
-			return
-		}
+	if err := openURL(url); err != nil {
+		m.log.Infof("Error opening URL in browser: %s", err)
 	}
-	m.log.Infof("Error opening URL in browser.")
 }
 
 func (m *GCal) tokenFromFile() (*oauth2.Token, error) {

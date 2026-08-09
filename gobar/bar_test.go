@@ -1,0 +1,158 @@
+package gobar
+
+import (
+	"encoding/json"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/Ak-Army/xlog"
+)
+
+func TestMain(m *testing.M) {
+	// The package logs through the global logger; keep the test output readable.
+	xlog.SetLogger(xlog.NopLogger)
+	os.Exit(m.Run())
+}
+
+func TestParseClick(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want ClickMessage
+		ok   bool
+	}{
+		{
+			name: "first event of the stream",
+			line: `{"name":"VolumeInfo","instance":"id_1","button":5,"x":29,"y":12}`,
+			want: ClickMessage{Name: "VolumeInfo", Instance: "id_1", Button: 5, X: 29, Y: 12},
+			ok:   true,
+		},
+		{
+			// i3bar prefixes every line after the first with a comma.
+			name: "comma prefixed event",
+			line: `,{"name":"DateTime","instance":"id_0","button":1,"x":0,"y":0}`,
+			want: ClickMessage{Name: "DateTime", Instance: "id_0", Button: 1},
+			ok:   true,
+		},
+		{name: "opening bracket of the stream", line: "[", ok: false},
+		{name: "empty line", line: "", ok: false},
+		{name: "lone comma", line: ",", ok: false},
+		{name: "not json", line: "garbage", ok: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := parseClick([]byte(tc.line))
+			if ok != tc.ok {
+				t.Fatalf("ok = %v, want %v", ok, tc.ok)
+			}
+			if ok && got != tc.want {
+				t.Errorf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReadClicksDeliversEveryEvent(t *testing.T) {
+	const events = 30
+	var input strings.Builder
+	input.WriteString(`{"name":"M","instance":"id_0","button":1,"x":0,"y":0}` + "\n")
+	for i := 1; i < events; i++ {
+		input.WriteString(`,{"name":"M","instance":"id_0","button":1,"x":0,"y":0}` + "\n")
+	}
+
+	out := make(chan ClickMessage, events)
+	readClicks(strings.NewReader(input.String()), out)
+	close(out)
+
+	var got int
+	for range out {
+		got++
+	}
+	if got != events {
+		t.Errorf("delivered %d events, want %d", got, events)
+	}
+}
+
+func TestRender(t *testing.T) {
+	bar := &Bar{
+		log: xlog.NopLogger,
+		blocks: []Block{
+			{Label: "C:", Interval: 5, Info: BlockInfo{FullText: "50 %", ShortText: "50", Name: "CpuInfo"}},
+			{Label: "", Interval: 1, Info: BlockInfo{FullText: "12:00", ShortText: "12:00", Name: "DateTime"}},
+			{Label: "S:", Interval: 0, Info: BlockInfo{FullText: "static", Name: "StaticText"}},
+		},
+	}
+
+	line, minInterval := bar.render()
+
+	// The shortest non-zero interval drives the redraw.
+	if minInterval != 1 {
+		t.Errorf("minInterval = %d, want 1", minInterval)
+	}
+	if !strings.HasPrefix(line, ",[") || !strings.HasSuffix(line, "]") {
+		t.Fatalf("line is not an i3bar array: %q", line)
+	}
+
+	var blocks []BlockInfo
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(line, ",")), &blocks); err != nil {
+		t.Fatalf("rendered line is not valid JSON: %s\n%s", err, line)
+	}
+	if len(blocks) != 3 {
+		t.Fatalf("rendered %d blocks, want 3", len(blocks))
+	}
+	if blocks[0].FullText != "C: 50 %" {
+		t.Errorf("labelled block = %q, want %q", blocks[0].FullText, "C: 50 %")
+	}
+	// An empty label must not leave a leading space behind.
+	if blocks[1].FullText != "12:00" {
+		t.Errorf("unlabelled block = %q, want %q", blocks[1].FullText, "12:00")
+	}
+}
+
+func TestRenderAllIntervalsZero(t *testing.T) {
+	bar := &Bar{
+		log:    xlog.NopLogger,
+		blocks: []Block{{Interval: 0, Info: BlockInfo{FullText: "static"}}},
+	}
+	if _, minInterval := bar.render(); minInterval != 0 {
+		t.Errorf("minInterval = %d, want 0 so printItems stops instead of spinning", minInterval)
+	}
+}
+
+func TestStopIsIdempotent(t *testing.T) {
+	// Reloading stops the previous bar; a second Stop must not panic on a
+	// closed channel, and a bar that never started has no channel at all.
+	(&Bar{}).Stop()
+
+	bar := &Bar{stop: make(chan bool)}
+	bar.Stop()
+	bar.Stop()
+
+	select {
+	case <-bar.stop:
+	default:
+		t.Error("stop channel was not closed")
+	}
+}
+
+func TestMapDefaultsWithoutDefaultsSection(t *testing.T) {
+	// A config without a `defaults` section used to panic here, which left
+	// createBar returning nil and took the process down with it.
+	defaults = defaultsValueFor(nil)
+	info := BlockInfo{FullText: "text"}
+	mapDefaults(&info)
+	if info.TextColor != "" {
+		t.Errorf("color = %q, want empty", info.TextColor)
+	}
+
+	defaults = defaultsValueFor(&BlockInfo{TextColor: "#ffffff", BorderBottom: 2})
+	info = BlockInfo{FullText: "text", BorderBottom: 5}
+	mapDefaults(&info)
+	if info.TextColor != "#ffffff" {
+		t.Errorf("color = %q, want the default to fill it in", info.TextColor)
+	}
+	if info.BorderBottom != 5 {
+		t.Errorf("border_bottom = %d, want the block's own 5 to win", info.BorderBottom)
+	}
+}

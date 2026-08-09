@@ -2,16 +2,16 @@ package modules
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 
-	"github.com/Ak-Army/i3barfeeder/gobar"
-
+	"github.com/Ak-Army/config"
 	"github.com/Ak-Army/xlog"
+
+	"github.com/Ak-Army/i3barfeeder/gobar"
 )
 
 func init() {
@@ -24,21 +24,21 @@ func init() {
 }
 
 type Network struct {
-	gobar.ModuleInterface
-	InterfaceName []string `json:"InterfaceName"`
+	gobar.BaseModule
+	InterfaceName []string `config:"interfaceName"`
 	barConfig     barConfig
 	currRx        uint64
 	currTx        uint64
 	log           xlog.Logger
 }
 
-func (m *Network) InitModule(config json.RawMessage, log xlog.Logger) error {
+func (m *Network) InitModule(c *config.SubConfig, log xlog.Logger) error {
 	m.log = log
-	if config != nil {
-		if err := json.Unmarshal(config, m); err != nil {
+	if c != nil {
+		if err := c.Load(m); err != nil {
 			return err
 		}
-		if err := json.Unmarshal(config, &m.barConfig); err != nil {
+		if err := c.Load(&m.barConfig); err != nil {
 			return err
 		}
 	}
@@ -49,8 +49,11 @@ func (m *Network) InitModule(config json.RawMessage, log xlog.Logger) error {
 
 func (m *Network) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	name, currRx, currTx := m.collectData()
-	info.ShortText = fmt.Sprintf("%s %s / %s", name, byteSize(currRx-m.currRx), byteSize(currTx-m.currTx))
-	info.FullText = fmt.Sprintf("%s %s / %s", name, byteSize(currRx-m.currRx), byteSize(currTx-m.currTx))
+	text := fmt.Sprintf("%s %s / %s", name,
+		byteSize(delta(currRx, m.currRx)),
+		byteSize(delta(currTx, m.currTx)))
+	info.ShortText = text
+	info.FullText = text
 	m.currRx, m.currTx = currRx, currTx
 	return info
 }
@@ -92,19 +95,7 @@ func (m *Network) collectData() (string, uint64, uint64) {
 		if err != nil {
 			m.log.Warnf("Unable to parse TX field: %s", fields[8])
 		}
-		out, err := exec.Command("iwconfig", name).Output()
-		if err == nil {
-			ssids := strings.SplitN(string(out), "ESSID:\"", 2)
-			if len(ssids) < 2 {
-				return name, rxBytes, txBytes
-			}
-			ssid := ssids[1]
-			ssid = strings.Split(ssid, "\"")[0]
-			sigLevel := strings.SplitN(string(out), "Signal level=", 2)[1]
-			sigLevel = strings.Split(sigLevel, " ")[0]
-			name = fmt.Sprintf("%s (%s dB)", ssid, sigLevel)
-		}
-		return name, rxBytes, txBytes
+		return m.wirelessName(name), rxBytes, txBytes
 	}
 	if err := scanner.Err(); err != nil {
 		m.log.Warn("File scan error", err)
@@ -113,6 +104,35 @@ func (m *Network) collectData() (string, uint64, uint64) {
 	return "none", 0, 0
 }
 
-func (m Network) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
+func (m *Network) wirelessName(name string) string {
+	out, err := exec.Command("iwconfig", name).Output()
+	if err != nil {
+		return name
+	}
+	return parseWireless(string(out), name)
+}
+
+// parseWireless pulls the SSID and the signal level out of iwconfig's output,
+// falling back to the interface name when the driver reports neither.
+func parseWireless(out string, name string) string {
+	ssids := strings.SplitN(out, "ESSID:\"", 2)
+	if len(ssids) < 2 {
+		return name
+	}
+	ssid := strings.Split(ssids[1], "\"")[0]
+	if ssid == "" {
+		return name
+	}
+
+	// Not every driver reports a signal level, so the name stays SSID-only there.
+	levels := strings.SplitN(out, "Signal level=", 2)
+	if len(levels) < 2 {
+		return ssid
+	}
+	sigLevel := strings.Split(levels[1], " ")[0]
+	return fmt.Sprintf("%s (%s dB)", ssid, sigLevel)
+}
+
+func (m *Network) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	return nil, nil
 }

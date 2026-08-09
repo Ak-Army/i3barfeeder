@@ -14,11 +14,13 @@ import (
 )
 
 func main() {
-	var logPath, configPath string
+	var logPath, configPath, keyring string
 	flag.StringVar(&logPath, "log", "/dev/null", "Log path. Default: /dev/null")
 	flag.StringVar(&logPath, "l", "/dev/null", "Log file to use. Default: /dev/null")
 	flag.StringVar(&configPath, "config", "", "Config path.")
 	flag.StringVar(&configPath, "c", "", "Config path (in JSON).")
+	flag.StringVar(&keyring, "key", "", "Keyring filepath path.")
+	flag.StringVar(&keyring, "k", "", "Keyring filepath path.")
 
 	flag.Parse()
 
@@ -40,26 +42,21 @@ func main() {
 	}()
 	log.Info("Start")
 	log.Infof("Loading configuration from: %s", configPath)
-	bar, err := gobar.New(configPath)
-	if err != nil {
+	if err := gobar.New(configPath, keyring); err != nil {
 		log.Fatal("Unable to load config", err)
 	}
-	bar.Start()
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGCONT)
 	for {
 		sig := <-sigs
 		log.Debugf("Received signal: %q", sig)
 		switch sig {
-		/*case syscall.SIGTERM:
-			bar.Stop()
-		case syscall.SIGCONT:
-			bar.Stop()
-			bar.ReStart()*/
-		case syscall.SIGINT:
+		/*case syscall.SIGCONT:
+		bar.Stop()
+		bar.ReStart()*/
+		case syscall.SIGINT, syscall.SIGTERM:
+			log.Info("End")
 			return
 		}
 	}
-	log.Info("End")
-	os.Exit(0)
 }

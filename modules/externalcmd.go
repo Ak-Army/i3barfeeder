@@ -1,10 +1,11 @@
 package modules
 
 import (
-	"encoding/json"
-	"github.com/Ak-Army/xlog"
 	"os/exec"
 	"strings"
+
+	"github.com/Ak-Army/config"
+	"github.com/Ak-Army/xlog"
 
 	"github.com/Ak-Army/i3barfeeder/gobar"
 )
@@ -16,28 +17,28 @@ func init() {
 }
 
 type ExternalCmd struct {
-	gobar.ModuleInterface
+	gobar.BaseModule
 	//Command to be executed (using "/bin/sh -c [command]")
-	Exec string `json:"exec"`
+	Exec string `config:"exec"`
 
 	// Conditional command that, if defined, needs to exit successfully
 	// before the main exec command is invoked.
 	// Default: ""
-	ExecIf string `json:"exec_if"`
+	ExecIf string `config:"exec_if"`
 
 	//"click-(left|middle|right)" will be executed using "/bin/sh -c [command]"
-	ClickLeft   string `json:"click_left"`
-	ClickMiddle string `json:"click_middle"`
-	ClickRight  string `json:"click_right"`
+	ClickLeft   string `config:"click_left"`
+	ClickMiddle string `config:"click_middle"`
+	ClickRight  string `config:"click_right"`
 
 	// "scroll-(up|down)" will be executed using "/bin/sh -c [command]"
-	ScrollUp   string `json:"scroll_up"`
-	ScrollDown string `json:"scroll_down"`
+	ScrollUp   string `config:"scroll_up"`
+	ScrollDown string `config:"scroll_down"`
 }
 
-func (m *ExternalCmd) InitModule(config json.RawMessage, log xlog.Logger) error {
-	if config != nil {
-		if err := json.Unmarshal(config, m); err != nil {
+func (m *ExternalCmd) InitModule(c *config.SubConfig, log xlog.Logger) error {
+	if c != nil {
+		if err := c.Load(m); err != nil {
 			return err
 		}
 	}

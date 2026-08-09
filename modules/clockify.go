@@ -1,7 +1,6 @@
 package modules
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -10,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Ak-Army/config"
 	"github.com/Ak-Army/timer"
 	"github.com/Ak-Army/xlog"
 
@@ -25,9 +25,9 @@ func init() {
 
 type Clockify struct {
 	sync.Mutex
-	gobar.ModuleInterface
-	ApiToken         string        `json:"apiToken"`
-	TicketNames      []cticketName `json:"ticketNames"`
+	gobar.BaseModule
+	ApiToken         string        `config:"apiToken,encrypted"`
+	TicketNames      []cticketName `config:"ticketNames"`
 	tickets          []cticket
 	currentTimeEntry clockify.TimeEntry
 	updateTimeEntry  clockify.TimeEntry
@@ -41,9 +41,9 @@ type Clockify struct {
 }
 
 type cticketName struct {
-	Name    string `json:"name"`
-	TPId    string `json:"tpId"`
-	Project string `json:"project"`
+	Name    string `config:"name"`
+	TPId    string `config:"tpId"`
+	Project string `config:"project"`
 }
 
 type cticket struct {
@@ -52,9 +52,9 @@ type cticket struct {
 	TagId string
 }
 
-func (m *Clockify) InitModule(config json.RawMessage, log xlog.Logger) error {
+func (m *Clockify) InitModule(c *config.SubConfig, log xlog.Logger) error {
 	m.log = log
-	if err := json.Unmarshal(config, m); err != nil {
+	if err := c.Load(m); err != nil {
 		return err
 	}
 	m.clockifyClient = clockify.NewClient(m.ApiToken)

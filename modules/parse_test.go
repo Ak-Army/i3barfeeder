@@ -1,9 +1,15 @@
 package modules
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/Ak-Army/xlog"
+
+	"github.com/Ak-Army/i3barfeeder/gobar"
 )
 
 // Real iwconfig output, the shape the parser has to survive.
@@ -129,6 +135,131 @@ func TestDelta(t *testing.T) {
 				t.Errorf("delta(%d, %d) = %d, want %d", tc.curr, tc.prev, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestWrapIndex(t *testing.T) {
+	tests := []struct {
+		name       string
+		i, step, n int
+		want       int
+	}{
+		{name: "forward", i: 0, step: 1, n: 3, want: 1},
+		{name: "backward", i: 2, step: -1, n: 3, want: 1},
+		{name: "forward past the end", i: 2, step: 1, n: 3, want: 0},
+		{name: "backward past the start", i: 0, step: -1, n: 3, want: 2},
+		// The ticket list shrinks whenever a project stops resolving. An index
+		// left over from the longer list used to be handed straight to the
+		// slice, which panicked.
+		{name: "stale index, scrolling up", i: 7, step: 1, n: 3, want: 0},
+		{name: "stale index, scrolling down", i: 7, step: -1, n: 3, want: 2},
+		{name: "single ticket", i: 0, step: 1, n: 1, want: 0},
+		// len(tickets)-1 on an empty list is -1, the index that took the whole
+		// process down.
+		{name: "empty list, scrolling down", i: 0, step: -1, n: 0, want: 0},
+		{name: "empty list, scrolling up", i: 0, step: 1, n: 0, want: 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := wrapIndex(tc.i, tc.step, tc.n)
+			if got != tc.want {
+				t.Errorf("wrapIndex(%d, %d, %d) = %d, want %d", tc.i, tc.step, tc.n, got, tc.want)
+			}
+			if tc.n > 0 && (got < 0 || got >= tc.n) {
+				t.Errorf("wrapIndex(%d, %d, %d) = %d, out of range", tc.i, tc.step, tc.n, got)
+			}
+		})
+	}
+}
+
+func TestHasTicketsOnEmptyList(t *testing.T) {
+	// Nothing loads the ticket list until the first successful project fetch, so
+	// every m.tickets index has to be guarded by this.
+	toggl := &Toggl{log: xlog.NopLogger}
+	if toggl.hasTickets() {
+		t.Error("Toggl.hasTickets() = true on an empty list")
+	}
+	toggl.tickets = []ticket{{name: "ENG-1"}}
+	if !toggl.hasTickets() {
+		t.Error("Toggl.hasTickets() = false with one ticket")
+	}
+
+	clockify := &Clockify{log: xlog.NopLogger}
+	if clockify.hasTickets() {
+		t.Error("Clockify.hasTickets() = true on an empty list")
+	}
+	clockify.tickets = []cticket{{name: "ENG-1"}}
+	if !clockify.hasTickets() {
+		t.Error("Clockify.hasTickets() = false with one ticket")
+	}
+}
+
+func TestReadLinesStopsOnError(t *testing.T) {
+	// The loop used to run until it saw exactly io.EOF, so any other error left
+	// it spinning forever while feeding the callback empty lines. A directory
+	// reads as EISDIR, which is the shape that used to hang.
+	dir := t.TempDir()
+	done := make(chan int, 1)
+	go func() {
+		var calls int
+		readLines(dir, func(string) bool {
+			calls++
+			if calls > 1000 {
+				panic("readLines did not stop on a non-EOF error")
+			}
+			return true
+		})
+		done <- calls
+	}()
+
+	select {
+	case calls := <-done:
+		if calls != 0 {
+			t.Errorf("callback ran %d times on an unreadable file, want 0", calls)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("readLines did not return")
+	}
+}
+
+func TestReadLinesReadsEveryLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "proc")
+	if err := os.WriteFile(path, []byte("first\nsecond\nthird\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %s", err)
+	}
+	var got []string
+	readLines(path, func(line string) bool {
+		got = append(got, line)
+		return true
+	})
+	want := []string{"first", "second", "third"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("readLines() = %q, want %q", got, want)
+	}
+
+	// A callback returning false stops the walk.
+	var stopped []string
+	readLines(path, func(line string) bool {
+		stopped = append(stopped, line)
+		return false
+	})
+	if len(stopped) != 1 {
+		t.Errorf("callback ran %d times after returning false, want 1", len(stopped))
+	}
+}
+
+func TestNetworkKeepsBaselineWhenInterfaceIsMissing(t *testing.T) {
+	m := &Network{InterfaceName: []string{"definitely-not-an-interface"}, log: xlog.NopLogger}
+	m.currRx, m.currTx = 1000, 2000
+
+	m.UpdateInfo(gobar.BlockInfo{})
+
+	if m.currRx != 1000 || m.currTx != 2000 {
+		t.Errorf("baseline = (%d, %d), want it left at (1000, 2000)", m.currRx, m.currTx)
+	}
+	m.collectData()
+	if m.currRx != 0 || m.currTx != 0 {
+		t.Error("collectData() reported ok for a missing interface")
 	}
 }
 

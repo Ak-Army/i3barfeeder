@@ -42,28 +42,30 @@ func (m *Network) InitModule(c *config.SubConfig, log xlog.Logger) error {
 			return err
 		}
 	}
-	_, m.currRx, m.currTx = m.collectData()
+	m.collectData()
 
 	return nil
 }
 
 func (m *Network) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
-	name, currRx, currTx := m.collectData()
+	name := m.collectData()
 	text := fmt.Sprintf("%s %s / %s", name,
-		byteSize(delta(currRx, m.currRx)),
-		byteSize(delta(currTx, m.currTx)))
+		byteSize(delta(m.currRx, m.currRx)),
+		byteSize(delta(m.currTx, m.currTx)))
 	info.ShortText = text
 	info.FullText = text
-	m.currRx, m.currTx = currRx, currTx
+
 	return info
 }
 
-func (m *Network) collectData() (string, uint64, uint64) {
+func (m *Network) collectData() string {
 	// Reference: man 5 proc, Documentation/filesystems/proc.txt in Linux source code
 	file, err := os.Open("/proc/net/dev")
 	if err != nil {
 		m.log.Warn("File open error", err)
-		return "none", 0, 0
+		m.currTx = 0
+		m.currRx = 0
+		return "none"
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
@@ -95,13 +97,17 @@ func (m *Network) collectData() (string, uint64, uint64) {
 		if err != nil {
 			m.log.Warnf("Unable to parse TX field: %s", fields[8])
 		}
-		return m.wirelessName(name), rxBytes, txBytes
+		m.currRx = rxBytes
+		m.currTx = txBytes
+
+		return m.wirelessName(name)
 	}
 	if err := scanner.Err(); err != nil {
 		m.log.Warn("File scan error", err)
-		return "none", 0, 0
 	}
-	return "none", 0, 0
+	m.currTx = 0
+	m.currRx = 0
+	return "none"
 }
 
 func (m *Network) wirelessName(name string) string {

@@ -50,12 +50,17 @@ type GCal struct {
 	} `config:"meetingLink"`
 	log           xlog.Logger
 	googleService *calendar.Service
-	lastQuery     time.Time
-	events        []*event
 	info          string
-	currentEvent  *event
-	eventLock     sync.Mutex
-	leftClick     time.Time
+
+	// UpdateInfo runs on the block goroutine while HandleClick runs on the bar's
+	// single click goroutine, and both reach this same instance: createBar copies
+	// the Block struct, not the module pointer. Everything below, including the
+	// clicked flag of the events in the slice, is only safe under mu.
+	mu           sync.Mutex
+	lastQuery    time.Time
+	events       []*event
+	currentEvent *event
+	leftClick    time.Time
 }
 
 func (m *GCal) InitModule(c *config.SubConfig, log xlog.Logger) error {
@@ -104,13 +109,16 @@ func (m *GCal) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 		info.TextColor = "#FFFFFF"
 		info.ShortText = m.info
 		info.FullText = m.info
+		m.mu.Lock()
 		m.currentEvent = nil
+		m.mu.Unlock()
 		return info
 	}
-	if time.Since(m.lastQuery) > time.Hour/2 {
-		m.lastQuery = time.Now()
+	if m.reloadDue() {
 		m.reloadEvents()
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.currentEvent == nil {
 		info.ShortText = "No events"
 		info.FullText = "No upcoming events found."
@@ -123,53 +131,74 @@ func (m *GCal) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 	return info
 }
 
+func (m *GCal) reloadDue() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if time.Since(m.lastQuery) <= time.Hour/2 {
+		return false
+	}
+	m.lastQuery = time.Now()
+	return true
+}
+
 func (m *GCal) reloadEvents() {
 	m.log.Info("Load google events")
+	m.mu.Lock()
 	t := m.lastQuery.Truncate(time.Hour * 24)
+	m.mu.Unlock()
+
 	gevents, err := m.googleService.Events.List("primary").ShowDeleted(false).
 		SingleEvents(true).TimeMin(t.Format(time.RFC3339)).MaxResults(10).
 		OrderBy("startTime").Do()
 	if err != nil {
 		m.log.Errorf("Unable to retrieve next ten of the user's events: %v", err)
-	} else {
-		var evs []*event
-		for _, e := range gevents.Items {
-			ev := &event{Event: e}
-			for _, oe := range m.events {
-				if oe.Id == e.Id {
-					ev.clicked = oe.clicked
-				}
-			}
-			ev.meetingLink = m.findMeetingLink(ev)
-			evs = append(evs, ev)
-		}
-		m.events = evs
+		return
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var evs []*event
+	for _, e := range gevents.Items {
+		ev := &event{Event: e}
+		for _, oe := range m.events {
+			if oe.Id == e.Id {
+				ev.clicked = oe.clicked
+			}
+		}
+		ev.meetingLink = m.findMeetingLink(ev)
+		evs = append(evs, ev)
+	}
+	m.events = evs
 }
 
 func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
 	switch cm.Button {
 	case 1: // left click, a double click within a second reloads the events
-		if !m.leftClick.IsZero() && time.Since(m.leftClick) <= time.Second {
-			m.reloadEvents()
+		m.mu.Lock()
+		reload := !m.leftClick.IsZero() && time.Since(m.leftClick) <= time.Second
+		if reload {
 			m.leftClick = time.Time{}
 		} else {
 			m.leftClick = time.Now()
 		}
+		m.mu.Unlock()
+		if reload {
+			m.reloadEvents()
+		}
 		return &info, nil
 	case 2: // middle button
-		m.eventLock.Lock()
+		m.mu.Lock()
+		defer m.mu.Unlock()
 		m.currentEvent = nil
-		m.eventLock.Unlock()
 		if e := m.getCurrentEvent(); e != nil {
 			m.showEvent(e, &info)
 		}
 
 		return &info, nil
 	case 3: // right click, join zoom
-		m.eventLock.Lock()
+		m.mu.Lock()
+		defer m.mu.Unlock()
 		e := m.currentEvent
-		m.eventLock.Unlock()
 		if e == nil {
 			e = m.getCurrentEvent()
 		}
@@ -186,9 +215,9 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 			m.log.Warnf("unable to find zoom link: %s", e.Description)
 		}
 	case 4: // scroll up, decrease
-		m.eventLock.Lock()
+		m.mu.Lock()
+		defer m.mu.Unlock()
 		e := m.currentEvent
-		m.eventLock.Unlock()
 		if e == nil {
 			e = m.getCurrentEvent()
 		}
@@ -199,16 +228,14 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 		for i, item := range m.events {
 			if item.Id == e.Id && i < l {
 				m.showEvent(m.events[i+1], &info)
-				m.eventLock.Lock()
 				m.currentEvent = m.events[i+1]
-				m.eventLock.Unlock()
 				return &info, nil
 			}
 		}
 	case 5: // scroll down, decrease
-		m.eventLock.Lock()
+		m.mu.Lock()
+		defer m.mu.Unlock()
 		e := m.currentEvent
-		m.eventLock.Unlock()
 		if e == nil {
 			e = m.getCurrentEvent()
 		}
@@ -218,9 +245,7 @@ func (m *GCal) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.
 		for i, item := range m.events {
 			if item.Id == e.Id && i > 0 {
 				m.showEvent(m.events[i-1], &info)
-				m.eventLock.Lock()
 				m.currentEvent = m.events[i-1]
-				m.eventLock.Unlock()
 				return &info, nil
 			}
 		}
@@ -287,6 +312,7 @@ func (m *GCal) findMeetingLink(event *event) string {
 	return ""
 }
 
+// getCurrentEvent must be called with m.mu held.
 func (m *GCal) getCurrentEvent() *event {
 	t := time.Now().Add(10 * time.Minute)
 	var maybeFound *event
@@ -312,27 +338,10 @@ func (m *GCal) getCurrentEvent() *event {
 			return maybeFound
 		}
 	}
-	for _, item := range m.events {
-		if !hasTimes(item) {
-			continue
-		}
-		endDateTime, err := time.Parse(time.RFC3339, item.End.Date)
-		if err != nil {
-			continue
-		}
-		if t.Before(endDateTime) {
-			if m.isDeclined(item) {
-				maybeFound = item
-				continue
-			}
-			return item
-		} else if maybeFound != nil {
-			return maybeFound
-		}
-	}
 	return nil
 }
 
+// showEvent must be called with m.mu held; it writes event.clicked.
 func (m *GCal) showEvent(event *event, info *gobar.BlockInfo) {
 	if !hasTimes(event) {
 		return
@@ -396,28 +405,27 @@ func (m *GCal) isAllDayEvent(event *event) bool {
 	return hasTimes(event) && (event.Start.Date != "" || event.End.Date != "")
 }
 
-// hasTimes reports whether the event carries both of its time fields. Start and
-// End are pointers in the calendar API, so dereferencing them unchecked panics,
-// which kills the block goroutine for good.
 func hasTimes(e *event) bool {
 	return e != nil && e.Start != nil && e.End != nil
 }
 
-// Retrieve a token, saves the token, then returns the generated client.
 func (m *GCal) getClient(config *oauth2.Config) *http.Client {
-	// The file token.json stores the user's access and refresh tokens, and is
-	// created automatically when the authorization flow completes for the first
-	// time.
 	tok, err := m.tokenFromFile()
 	if err != nil {
 		tok = m.getTokenFromWeb(config)
+		if tok == nil {
+			m.log.Error("No token obtained, not caching one")
+			return nil
+		}
 		m.saveToken(tok)
 	}
 	return config.Client(context.Background(), tok)
 }
 
+const authTimeout = 2 * time.Minute
+
 func (m *GCal) getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
-	ch := make(chan string)
+	ch := make(chan string, 1)
 	randState := fmt.Sprintf("st%d", time.Now().UnixNano())
 	ts := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		if req.URL.Path == "/favicon.ico" {
@@ -444,7 +452,13 @@ func (m *GCal) getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	authURL := config.AuthCodeURL(randState)
 	go m.openURL(authURL)
 	m.log.Info("Authorize this app at: %s", authURL)
-	code := <-ch
+	var code string
+	select {
+	case code = <-ch:
+	case <-time.After(authTimeout):
+		m.log.Errorf("No authorization received within %s", authTimeout)
+		return nil
+	}
 	m.log.Infof("Got code: %s", code)
 
 	token, err := config.Exchange(context.Background(), code)
@@ -468,8 +482,13 @@ func (m *GCal) tokenFromFile() (*oauth2.Token, error) {
 	}
 	defer f.Close()
 	tok := &oauth2.Token{}
-	err = json.NewDecoder(f).Decode(tok)
-	return tok, err
+	if err := json.NewDecoder(f).Decode(tok); err != nil {
+		return nil, err
+	}
+	if tok.AccessToken == "" && tok.RefreshToken == "" {
+		return nil, fmt.Errorf("%s holds no usable token", m.TokenFile)
+	}
+	return tok, nil
 }
 
 // Saves a token to a file path.

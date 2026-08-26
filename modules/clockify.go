@@ -38,6 +38,8 @@ type Clockify struct {
 	projects         clockify.Projects
 	clockifyClient   clockify.Client
 	clockifyUser     *clockify.User
+	stop             chan struct{}
+	stopOnce         sync.Once
 }
 
 type cticketName struct {
@@ -70,30 +72,51 @@ func (m *Clockify) InitModule(c *config.SubConfig, log xlog.Logger) error {
 	m.calcRemainingTime()
 	m.updateProjectsAndTasks()
 
+	stop := make(chan struct{})
+	m.stop = stop
+
 	ticker := timer.NewTicker("clockifyTicker", 10*time.Second)
 	go func() {
-		for t := range ticker.C() {
-			m.Lock()
-			if m.updateTimeEntry.ID == "" {
-				m.getCurrentTimeEntry()
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case t := <-ticker.C():
+				m.Lock()
+				if m.updateTimeEntry.ID == "" {
+					m.getCurrentTimeEntry()
+				}
+				if t.Minute() > 0 && t.Minute()%5 == 0 {
+					m.calcRemainingTime()
+					m.updateProjectsAndTasks()
+				}
+				m.Unlock()
 			}
-			if t.Minute() > 0 && t.Minute()%5 == 0 {
-				m.calcRemainingTime()
-				m.updateProjectsAndTasks()
-			}
-			m.Unlock()
 		}
 	}()
-	m.updateTimer = timer.NewTimer("togglUpdateTimer", time.Second)
+	m.updateTimer = timer.NewTimer("clockifyUpdateTimer", time.Second)
 	go func() {
 		for {
 			select {
+			case <-stop:
+				return
 			case <-m.updateTimer.C():
 				m.updateCurrentTimeEntry()
 			}
 		}
 	}()
 	return nil
+}
+
+func (m *Clockify) Stop() {
+	if m.stop == nil {
+		return
+	}
+	m.stopOnce.Do(func() {
+		close(m.stop)
+		m.updateTimer.SafeStop()
+	})
 }
 
 func (m *Clockify) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
@@ -185,6 +208,9 @@ func (m *Clockify) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*go
 			m.currentName = 0
 		} else {
 			xlog.Info("Start time entry")
+			if !m.hasTickets() {
+				break
+			}
 			if m.clockifyUser.DefaultWorkspace != "" {
 				var newTimeEntry = clockify.TimeEntry{
 					Description: m.tickets[0].name,
@@ -199,26 +225,35 @@ func (m *Clockify) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*go
 			}
 		}
 	case 4: // scroll up, increase
-		m.currentName = m.currentName + 1
-		if m.currentName >= len(m.tickets) {
-			m.currentName = 0
+		if !m.hasTickets() {
+			break
 		}
-		m.currentTimeEntry.Description = m.tickets[m.currentName].name
-		m.currentTimeEntry.ProjectID = m.tickets[m.currentName].PID
-		m.updateTimer.SafeReset(time.Second * 1)
-		m.updateTimeEntry = m.currentTimeEntry
+		m.currentName = wrapIndex(m.currentName, 1, len(m.tickets))
+		m.selectTicket()
 	case 5: // scroll down, decrease
-		m.currentName = m.currentName - 1
-		if m.currentName < 0 {
-			m.currentName = len(m.tickets) - 1
+		if !m.hasTickets() {
+			break
 		}
-		m.currentTimeEntry.Description = m.tickets[m.currentName].name
-		m.currentTimeEntry.ProjectID = m.tickets[m.currentName].PID
-		m.updateTimer.SafeReset(time.Second * 1)
-		m.updateTimeEntry = m.currentTimeEntry
+		m.currentName = wrapIndex(m.currentName, -1, len(m.tickets))
+		m.selectTicket()
 	}
 	info = m.UpdateInfo(info)
 	return &info, nil
+}
+
+func (m *Clockify) hasTickets() bool {
+	if len(m.tickets) > 0 {
+		return true
+	}
+	m.log.Warn("No tickets yet, the project list has not loaded")
+	return false
+}
+
+func (m *Clockify) selectTicket() {
+	m.currentTimeEntry.Description = m.tickets[m.currentName].name
+	m.currentTimeEntry.ProjectID = m.tickets[m.currentName].PID
+	m.updateTimer.SafeReset(time.Second * 1)
+	m.updateTimeEntry = m.currentTimeEntry
 }
 
 func (m *Clockify) calcRemainingTime() {
@@ -285,10 +320,11 @@ func (m *Clockify) updateCurrentTimeEntry() {
 }
 
 func (m *Clockify) updateProjectsAndTasks() {
-	var err error
-	m.projects, err = m.clockifyClient.GetWorkspaceProjects(m.clockifyUser.DefaultWorkspace)
+	projects, err := m.clockifyClient.GetWorkspaceProjects(m.clockifyUser.DefaultWorkspace)
 	if err != nil {
 		m.log.Error("Unable to get workspace projects", err)
+	} else {
+		m.projects = projects
 	}
 
 	var tickets []cticket

@@ -10,16 +10,50 @@ import (
 	"sort"
 )
 
-// openURL opens the URL with the first browser that accepts it.
+// openURL hands the URL to the first browser installed. It deliberately does not
+// wait for the process: there is a single click goroutine for the whole bar, and
+// a browser started without a running instance only exits when the user closes
+// it, which would leave every block unclickable until then.
 func openURL(url string) error {
 	try := []string{"xdg-open", "brave-browser", "google-chrome", "firefox", "open"}
-	var err error
 	for _, bin := range try {
-		if err = exec.Command(bin, url).Run(); err == nil {
-			return nil
+		if _, err := exec.LookPath(bin); err != nil {
+			continue
 		}
+		if err := startDetached(exec.Command(bin, url)); err != nil {
+			continue
+		}
+		return nil
 	}
-	return fmt.Errorf("unable to open URL in a browser: %w", err)
+	return fmt.Errorf("unable to open URL in a browser: none of %v is installed", try)
+}
+
+// startDetached runs cmd without blocking, reaping it in the background so it
+// does not linger as a zombie.
+func startDetached(cmd *exec.Cmd) error {
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go cmd.Wait()
+	return nil
+}
+
+// wrapIndex moves i by step within [0, n), wrapping at whichever end it runs
+// off. An index left over from a longer list wraps too: the ticket list shrinks
+// whenever a project stops resolving, and indexing with a stale one used to
+// panic and take the process down.
+func wrapIndex(i, step, n int) int {
+	if n <= 0 {
+		return 0
+	}
+	i += step
+	if i < 0 || i >= n {
+		if step < 0 {
+			return n - 1
+		}
+		return 0
+	}
+	return i
 }
 
 type barConfig struct {
@@ -58,9 +92,16 @@ func readLines(fileName string, callback func(string) bool) {
 	defer fin.Close()
 
 	reader := bufio.NewReader(fin)
-	for line, _, err := reader.ReadLine(); err != io.EOF; line, _, err = reader.ReadLine() {
+	for {
+		line, _, err := reader.ReadLine()
+		if err != nil {
+			if err != io.EOF {
+				fmt.Fprintf(os.Stderr, "Error reading %s: %s\n", fileName, err)
+			}
+			return
+		}
 		if !callback(string(line)) {
-			break
+			return
 		}
 	}
 }

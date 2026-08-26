@@ -57,14 +57,16 @@ func (block *Block) CreateModule(id int, log xlog.Logger) error {
 		err = fmt.Errorf("module not found: `%s`", block.ModuleName)
 	}
 	if err != nil {
-		block.Label = "ERR: " + err.Error()
+		block.Label = "ERR:"
 		block.Info = BlockInfo{
 			TextColor: "#FF0000",
 			FullText:  err.Error(),
 			Name:      "StaticText",
 		}
-		block.module = moduleRegistry["StaticText"]()
-		block.module.InitModule(block.Config, log)
+		if fallback, ok := moduleRegistry["StaticText"]; ok {
+			block.module = fallback()
+			block.module.InitModule(block.Config, log)
+		}
 	}
 	return err
 }
@@ -98,4 +100,16 @@ func (block *Block) Start(ID int, updateChannel chan<- UpdateChannelMsg, stop <-
 
 func (block *Block) HandleClick(cm ClickMessage) (*BlockInfo, error) {
 	return block.module.HandleClick(cm, block.Info)
+}
+
+func (block *Block) Stop() {
+	if block.module == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			xlog.Errorf("recovered: %s -> stackTrace: %s", r, debug.Stack())
+		}
+	}()
+	block.module.Stop()
 }

@@ -21,12 +21,9 @@ type ModuleInterface interface {
 	InitModule(config *config.SubConfig, log xlog.Logger) error
 	UpdateInfo(info BlockInfo) BlockInfo
 	HandleClick(cm ClickMessage, info BlockInfo) (*BlockInfo, error)
+	Stop()
 }
 
-// BaseModule supplies the two optional halves of ModuleInterface, so a module
-// only writes the parts it needs. Embed this rather than ModuleInterface itself:
-// embedding the interface satisfies the compiler with a nil value, turning a
-// forgotten UpdateInfo into a runtime panic instead of a build error.
 type BaseModule struct{}
 
 func (BaseModule) InitModule(c *config.SubConfig, log xlog.Logger) error {
@@ -36,6 +33,8 @@ func (BaseModule) InitModule(c *config.SubConfig, log xlog.Logger) error {
 func (BaseModule) HandleClick(cm ClickMessage, info BlockInfo) (*BlockInfo, error) {
 	return nil, nil
 }
+
+func (BaseModule) Stop() {}
 
 type BlockMarkup string
 

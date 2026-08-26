@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -65,7 +66,16 @@ func (b *Bar) Stop() {
 	if b.stop == nil {
 		return
 	}
-	b.stopOnce.Do(func() { close(b.stop) })
+	b.stopOnce.Do(func() {
+		close(b.stop)
+		b.mu.Lock()
+		blocks := make([]Block, len(b.blocks))
+		copy(blocks, b.blocks)
+		b.mu.Unlock()
+		for i := range blocks {
+			blocks[i].Stop()
+		}
+	})
 }
 
 func (b *Bar) Print() (minInterval int64) {
@@ -195,7 +205,7 @@ func (b *Bar) handleClickMessage(clickMessage ClickMessage) {
 	var changed bool
 	for j, i := range matched {
 		b.log.Debug("Click: handled")
-		info, err := blocks[j].HandleClick(clickMessage)
+		info, err := b.clickBlock(&blocks[j], clickMessage)
 		if err != nil {
 			b.log.Debug("Click: error: ", err.Error())
 		}
@@ -209,6 +219,16 @@ func (b *Bar) handleClickMessage(clickMessage ClickMessage) {
 	if changed {
 		b.Print()
 	}
+}
+
+func (b *Bar) clickBlock(block *Block, clickMessage ClickMessage) (info *BlockInfo, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			b.log.Errorf("recovered: %s -> stackTrace: %s", r, debug.Stack())
+			info, err = nil, fmt.Errorf("click handler panicked: %v", r)
+		}
+	}()
+	return block.HandleClick(clickMessage)
 }
 
 func (b *Bar) printItems() {

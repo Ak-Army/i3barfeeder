@@ -63,5 +63,7 @@ func (m *DateTime) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
 }
 
 func (m *DateTime) HandleClick(cm gobar.ClickMessage, info gobar.BlockInfo) (*gobar.BlockInfo, error) {
-	return nil, exec.Command("gsimplecal").Run()
+	// Do not wait for it: the calendar stays open until the user dismisses it,
+	// and the bar has one click goroutine to serve every block.
+	return nil, startDetached(exec.Command("gsimplecal"))
 }

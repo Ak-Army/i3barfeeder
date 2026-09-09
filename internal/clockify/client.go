@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -16,23 +17,38 @@ import (
 const requestTimeout = 10 * time.Second
 
 type Client struct {
-	client    *http.Client
-	transport *http.Transport
-	baseUrl   string
-	apiToken  string
+	client   *http.Client
+	baseUrl  string
+	apiToken string
 }
 
 func NewClient(apiToken string) Client {
-	transport := &http.Transport{}
-	baseUrl := "https://api.clockify.me/api/v1"
-
 	return Client{
-		client:    &http.Client{Transport: transport, Timeout: requestTimeout},
-		transport: transport,
-		baseUrl:   baseUrl,
-		apiToken:  apiToken,
+		client: &http.Client{
+			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   5 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				// A custom dialer disables HTTP/2 unless it is asked for explicitly.
+				ForceAttemptHTTP2: true,
+				HTTP2: &http.HTTP2Config{
+					SendPingTimeout: 15 * time.Second,
+					PingTimeout:     10 * time.Second,
+				},
+				MaxIdleConns:          4,
+				IdleConnTimeout:       60 * time.Second,
+				TLSHandshakeTimeout:   5 * time.Second,
+				ExpectContinueTimeout: time.Second,
+			},
+			Timeout: requestTimeout,
+		},
+		baseUrl:  "https://api.clockify.me/api/v1",
+		apiToken: apiToken,
 	}
 }
+
 func (c *Client) request(method string, endpoint string, param any) (response []byte, err error) {
 	var bodyText []byte
 	if param != nil {
@@ -53,6 +69,7 @@ func (c *Client) request(method string, endpoint string, param any) (response []
 	//xlog.Debugf("Requesting %s %s", method, c.baseUrl+endpoint)
 	res, err := c.client.Do(req)
 	if err != nil {
+		c.client.CloseIdleConnections()
 		return
 	}
 	defer res.Body.Close()

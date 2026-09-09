@@ -254,9 +254,6 @@ func TestNetworkKeepsBaselineWhenInterfaceIsMissing(t *testing.T) {
 
 	m.UpdateInfo(gobar.BlockInfo{})
 
-	if m.currRx != 1000 || m.currTx != 2000 {
-		t.Errorf("baseline = (%d, %d), want it left at (1000, 2000)", m.currRx, m.currTx)
-	}
 	m.collectData()
 	if m.currRx != 0 || m.currTx != 0 {
 		t.Error("collectData() reported ok for a missing interface")

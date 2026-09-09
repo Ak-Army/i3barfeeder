@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -419,7 +420,7 @@ func (m *GCal) getClient(config *oauth2.Config) *http.Client {
 		}
 		m.saveToken(tok)
 	}
-	return config.Client(context.Background(), tok)
+	return config.Client(authContext(), tok)
 }
 
 const authTimeout = 2 * time.Minute
@@ -461,7 +462,7 @@ func (m *GCal) getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	}
 	m.log.Infof("Got code: %s", code)
 
-	token, err := config.Exchange(context.Background(), code)
+	token, err := config.Exchange(authContext(), code)
 	if err != nil {
 		m.log.Errorf("Token exchange error: %v", err)
 		return nil
@@ -501,4 +502,33 @@ func (m *GCal) saveToken(token *oauth2.Token) {
 	}
 	defer f.Close()
 	json.NewEncoder(f).Encode(token)
+}
+
+// apiTimeout bounds the calendar calls and the token refreshes behind them.
+const apiTimeout = 30 * time.Second
+
+// authContext hands oauth2 the suspend-aware HTTP client to build on. Its own
+// default keeps a dead HTTP/2 connection in the pool after a resume, and every
+// call then times out on it until the kernel drops the socket.
+func authContext() context.Context {
+	return context.WithValue(context.Background(), oauth2.HTTPClient, &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   5 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			// A custom dialer disables HTTP/2 unless it is asked for explicitly.
+			ForceAttemptHTTP2: true,
+			HTTP2: &http.HTTP2Config{
+				SendPingTimeout: 15 * time.Second,
+				PingTimeout:     10 * time.Second,
+			},
+			MaxIdleConns:          4,
+			IdleConnTimeout:       60 * time.Second,
+			TLSHandshakeTimeout:   5 * time.Second,
+			ExpectContinueTimeout: time.Second,
+		},
+		Timeout: apiTimeout,
+	})
 }

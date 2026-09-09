@@ -48,10 +48,12 @@ func (m *Network) InitModule(c *config.SubConfig, log xlog.Logger) error {
 }
 
 func (m *Network) UpdateInfo(info gobar.BlockInfo) gobar.BlockInfo {
+	prevRX := m.currRx
+	prevTX := m.currTx
 	name := m.collectData()
 	text := fmt.Sprintf("%s %s / %s", name,
-		byteSize(delta(m.currRx, m.currRx)),
-		byteSize(delta(m.currTx, m.currTx)))
+		byteSize(delta(m.currRx, prevRX)),
+		byteSize(delta(m.currTx, prevTX)))
 	info.ShortText = text
 	info.FullText = text
 
